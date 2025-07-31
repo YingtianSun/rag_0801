@@ -44,9 +44,12 @@ def match_agents():
         }
 
         query = (
-            "You are an AI strategy consultant. From the transcript, identify business pain points, then recommend relevant agents only from the agent document.\n"
-            "Use the following official agent list for reference:\n\n{AGENT_DEFINITIONS} as well."
+        "You are an AI strategy consultant. Based on the transcript content, identify business pain points.\n"
+        "Then recommend only those agents that directly address these pain points. You must choose from the following 8 official agents only — do not invent new ones.\n\n"
+        f"{AGENT_DEFINITIONS}\n\n"
+        "List only the agent names (e.g., CARE, FLOW) that are relevant to the transcript."
         )
+
 
         result = rag_chain(index, query)
         return jsonify({"matched_agents": result})
@@ -88,7 +91,6 @@ def generate_agent_module():
         "● ...\n"
         "● ...\n"
         "● ...\n\n"
-        "Transformation Summary:\n"
         "Summarize how this agent transforms the client’s operations, improves efficiency, and enhances the service, operations, or sales process.\n\n"
         "Expected Outcomes:\n"
         "List 4–5 outcomes in this format. Do not invent outcomes — only use approved ones:\n"
@@ -96,8 +98,9 @@ def generate_agent_module():
         "● Revenue Growth Potential: 25–40% increase in follow-up appointments via structured data\n"
         "● ...\n"
         "● ...\n\n"
-        "Write clearly and professionally. Repeat this structured format for each relevant agent.\n"
-        "Do not summarize or omit key details."
+        "Write a full solution module for each relevant agent, using the above structure." 
+        "Do not skip or summarize any agent section."
+        "Do not mention that other agents will be written later — you must include them now in full."
         )
         
         result = rag_chain(index, query)
