@@ -10,7 +10,6 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 index_cache = {}
 
-# 用 dict 更灵活（如需每个 agent 独立 prompt）
 AGENT_DEFINITIONS = {
     "STRIKE": "STRIKE (Sales Acceleration Agent): Streamlines sales processes through lead scoring, automated follow-ups, intelligent proposal generation, and meeting scheduling. Boosts conversion rates and shortens sales cycles by managing pipelines and optimizing prospect interactions.",
     "CARE": "CARE (Customer Experience Agent): Delivers 24/7 omnichannel support via AI voice and chatbot systems. Handles FAQs, schedules appointments, resolves inquiries, and manages post-care feedback. Escalates complex queries to human agents and improves customer satisfaction through sentiment analysis.",
