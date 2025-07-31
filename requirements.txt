@@ -1,0 +1,11 @@
+flask==2.3.2
+gunicorn==21.2.0
+
+langchain
+langchain-community
+openai
+unstructured[all-docs]       
+faiss-cpu                   
+pydantic
+pdfplumber                 
+tiktoken       
