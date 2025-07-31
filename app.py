@@ -68,48 +68,38 @@ def generate_agent_module():
 
         index = cached["index"]
         query = (
-            "You are an AI consultant. Write a full structured solution module for agent {agent_name}, including: key features, business impact, transformation summary, and expected outcomes.\n"
-            "Use the official definition for this agent:\n\n{AGENT_DEFINITIONS}"
-            "Your output must strictly follow this format:\n\n"
-        
-            "Proposed Solution:\n"
-            "Write a detailed paragraph (at least 150 words) describing how the selected agents collectively address the company’s challenges. Be specific about operational improvements, sales, or customer experience enhancements.\n\n"
-            
-            "Solution Modules:\n"
-            "[AGENT NAME] – [AGENT TITLE]\n"
-            "Write at least 100–120 words describing how this agent resolves the client’s problems with examples from the transcript.\n\n"
-            
-            "Key Features:\n"
-            "● Each feature must be described with 2–3 sentences.\n"
-            "  Example: 'AI chatbot on the website to handle client inquiries and provide information from an integrated medical knowledge base. This ensures that customers receive instant, accurate answers 24/7 without requiring staff intervention. It also reduces repetitive queries, allowing staff to focus on high-value tasks.'\n"
-            "● ...\n"
-            "● ...\n"
-            "● ...\n\n"
-            
-            "Business Impact:\n"
-            "● Each impact must include metrics and be explained in 2–3 sentences.\n"
-            "  Example: 'Reduces inquiry handling workload by 60–70%. This frees staff from repetitive tasks and improves response speed, leading to faster conversion and higher customer satisfaction.'\n"
-            "● ...\n"
-            "● ...\n"
-            "● ...\n\n"
-            
-            "Summarize (50+ words) how this agent transforms operations, increases efficiency, and enhances customer or sales processes.\n\n"
-    
-            "Repeat this structure for each relevant agent. Then give:"
-            
-            "Expected Outcomes:\n"
-            "List 4–5 outcomes from the manual. Use the format:\n"
-            "● Operational Efficiency: Automation of manual tasks frees up staff time.\n"
-            "● Revenue Growth Potential: 25–40% increase in follow-up appointments via structured data.\n"
-            "● ...\n\n"
-            
-            "Rules:\n"
-            "- Each agent block must be at least 150 words.\n"
-            "- Total output should exceed 600–800 words.\n"
-            "- Use a consulting tone, clear structure, and professional language.\n"
-            "- Provide detailed explanations for Key Features and Business Impact."
+        "You are an AI strategy consultant. From the transcript, identify business pain points, then recommend relevant agents from the 3echo platform. "
+        "Only recommend agents that are truly relevant to the context.\n\n"
+        "Use the following official agent list for reference:\n\n"
+        f"{AGENT_DEFINITIONS}\n\n"
+        "Your output format must be exactly as follows:\n\n"
+        "Proposed Solution:\n"
+        "Describe in detail how the selected agents will together address the company’s needs. This section must contain more than 150 words and reflect the context and pain points described in the transcript.\n\n"
+        "Solution Modules:\n"
+        "[AGENT NAME] – [AGENT TITLE]\n"
+        "This solution [describe what this agent does for the business based on transcript context. Write at least 100 words, using transcript language and pain points].\n\n"
+        "Key Features:\n"
+        "● [Only use features copied or inferred from the agent manual. Write more than 2 full sentences.]\n"
+        "● ...\n"
+        "● ...\n"
+        "● ...\n\n"
+        "Business Impact:\n"
+        "● [Summarize impact metrics as described in the agent manual. At least 2 full sentences.]\n"
+        "● ...\n"
+        "● ...\n"
+        "● ...\n\n"
+        "Transformation Summary:\n"
+        "Summarize how this agent transforms the client’s operations, improves efficiency, and enhances the service, operations, or sales process.\n\n"
+        "Expected Outcomes:\n"
+        "List 4–5 outcomes in this format. Do not invent outcomes — only use approved ones:\n"
+        "● Operational Efficiency: Automation of manual tasks frees up staff time\n"
+        "● Revenue Growth Potential: 25–40% increase in follow-up appointments via structured data\n"
+        "● ...\n"
+        "● ...\n\n"
+        "Write clearly and professionally. Repeat this structured format for each relevant agent.\n"
+        "Do not summarize or omit key details."
         )
-
+        
         result = rag_chain(index, query)
         return jsonify({"agent_module": result})
 
