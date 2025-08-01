@@ -99,9 +99,13 @@ def generate_agent_module():
             "● Revenue Growth Potential: 25–40% increase in follow-up appointments via structured data\n"
             "● ...\n"
             "● ...\n\n"
-            "Do not mention or reference any other agents in your response. Focus solely on this one agent."
-            "Avoid vague conclusions like "I don't know" or "insufficient information. 
-            If a match is unclear, still attempt to reason using available keywords or pain points.")
+            "**Important:**\n"
+            "● Do not mention or reference any other agents.\n"
+            "● Do not respond with 'I don't know', 'insufficient data', or similar vague answers.\n"
+            "● If a match seems unclear, still attempt to provide a response by inferring from pain points or transcript language.\n"
+            "● Always generate a complete answer, even if the context is sparse."
+        )
+
 
         result = rag_chain(index, query)
         return jsonify({"agent_module": result})
