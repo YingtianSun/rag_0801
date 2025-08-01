@@ -100,7 +100,8 @@ def generate_agent_module():
             "● ...\n"
             "● ...\n\n"
             "Do not mention or reference any other agents in your response. Focus solely on this one agent."
-        )
+            "Avoid vague conclusions like "I don't know" or "insufficient information. 
+            If a match is unclear, still attempt to reason using available keywords or pain points.")
 
         result = rag_chain(index, query)
         return jsonify({"agent_module": result})
