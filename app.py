@@ -76,8 +76,9 @@ def generate_agent_module():
 
         query = (
             f"You are an AI consultant. Write a full structured solution module for the agent {agent_name}, based on the transcript context.\n\n"
-            f"Use the official definition below for this agent only:\n\n"
+            f"Use the official definition below for this agent:\n\n"
             f"{agent_definition}\n\n"
+            "Also refer to any relevant information retrieved from the transcript and agent manual to support your writing.\n\n"
             "Follow this exact structure:\n\n"
             f"{agent_name} – [AGENT TITLE]\n"
             "This solution [describe what this agent does for the business based on transcript context. Write at least 120 words, using transcript language and pain points].\n\n"
@@ -105,7 +106,6 @@ def generate_agent_module():
             "● If a match seems unclear, still attempt to provide a response by inferring from pain points or transcript language.\n"
             "● Always generate a complete answer, even if the context is sparse."
         )
-
 
         result = rag_chain(index, query)
         return jsonify({"agent_module": result})
