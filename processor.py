@@ -108,7 +108,7 @@ def rag_chain(vectorstore, query):
 
     relevant_docs = transcript_docs[:30] + agent_docs[:10]
 
-    llm = ChatOpenAI(temperature=0.8, model_name="gpt-4", max_tokens=3000)
+    llm = ChatOpenAI(temperature=0.9, model_name="gpt-4", max_tokens=3000)
     chain = load_qa_with_sources_chain(llm, chain_type="stuff")
     result = chain({"input_documents": relevant_docs, "question": query}, return_only_outputs=True)
 
