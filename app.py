@@ -74,6 +74,7 @@ def generate_agent_module():
     try:
         agent_name = request.json.get("agent")
         session_id = request.json.get("session_id", "default")
+        company_info = request.json.get("company_info", "") 
 
         cached = index_cache.get(session_id)
         if not cached:
