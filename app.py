@@ -32,7 +32,18 @@ def match_agents():
         transcript_file.save(transcript_path)
         agent_file.save(agent_path)
 
+        company_info = request.form.get("company_info", None)
+
         sections = load_all_documents([transcript_path, agent_path])
+
+        if company_info:
+            sections.append({
+                "title": "Company Info",
+                "text": company_info,
+                "source": "web_summary",
+                "type": "company"
+            })
+
         chunks = split_into_chunks(sections, chunk_size=800, chunk_overlap=200)
         index = build_faiss_index(chunks)
 
@@ -49,7 +60,7 @@ def match_agents():
             + "\n".join([f"- {v}" for v in AGENT_DEFINITIONS.values()]) + "\n\n"
             "Return a JSON array of relevant agent names, e.g., [\"CARE\", \"STRIKE\"] only."
         )
-
+        
         result = rag_chain(index, query)
         return jsonify({"matched_agents": result})
 
@@ -78,7 +89,9 @@ def generate_agent_module():
             f"You are an AI consultant. Write a full structured solution module for the agent {agent_name}, based on the transcript context.\n\n"
             f"Use the official definition below for this agent:\n\n"
             f"{agent_definition}\n\n"
-            "Also refer to any relevant information retrieved from the transcript and agent manual to support your writing.\n\n"
+            "Also refer to any relevant information retrieved from the transcript, agent manual, and the company's official description.\n\n"
+            "The company's official description is as follows:\n"
+            f"{company_info}\n\n"
             "Follow this exact structure:\n\n"
             f"{agent_name} – [AGENT TITLE]\n"
             "This solution [describe what this agent does for the business based on transcript context. Write at least 120 words, using transcript language and pain points].\n\n"
