@@ -77,13 +77,15 @@ def split_into_chunks(sections, chunk_size=700, chunk_overlap=100):
         separators=["\n\n", "\n", ".", "?", "!", " "]
     )
     documents = []
+
     for sec in sections:
         text = sec["text"].replace("\n", " ")
-        chunks = splitter.split_text(text)
-        for chunk in chunks:
+
+        if sec.get("type") == "agent":
+
             documents.append(
                 Document(
-                    page_content=chunk,
+                    page_content=text,
                     metadata={
                         "title": sec["title"],
                         "source": sec["source"],
@@ -91,6 +93,20 @@ def split_into_chunks(sections, chunk_size=700, chunk_overlap=100):
                     }
                 )
             )
+        else:
+
+            chunks = splitter.split_text(text)
+            for chunk in chunks:
+                documents.append(
+                    Document(
+                        page_content=chunk,
+                        metadata={
+                            "title": sec["title"],
+                            "source": sec["source"],
+                            "type": sec.get("type", "unknown")
+                        }
+                    )
+                )
     return documents
 
 def build_faiss_index(documents):
