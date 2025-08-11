@@ -126,10 +126,11 @@ def rag_chain(vectorstore, query):
     relevant_docs = transcript_docs[:30] + agent_docs[:10]
 
     llm = ChatAnthropic(
-        temperature=0.5,
-        model_name="claude-3-sonnet-20240229",
-        max_tokens=3000
+    temperature=0.5,
+    model="claude-opus-4-1-20250805",
+    max_tokens=3000
     )
+
     chain = load_qa_with_sources_chain(llm, chain_type="stuff")
     result = chain({"input_documents": relevant_docs, "question": query}, return_only_outputs=True)
 
