@@ -1,7 +1,7 @@
 from pathlib import Path
 from unstructured.partition.pdf import partition_pdf
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain.embeddings import OpenAIEmbeddings
+from langchain.embeddings import HuggingFaceEmbeddings
 from langchain.vectorstores import FAISS
 from langchain.schema import Document
 from langchain.chains.qa_with_sources import load_qa_with_sources_chain
@@ -112,7 +112,7 @@ def split_into_chunks(sections, chunk_size=700, chunk_overlap=100):
 def build_faiss_index(documents):
     if not documents:
         raise ValueError(" No documents provided for indexing.")
-    embeddings = OpenAIEmbeddings()
+    embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
     vectorstore = FAISS.from_documents(documents, embeddings)
     return vectorstore
 
