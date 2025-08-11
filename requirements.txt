@@ -3,7 +3,8 @@ gunicorn==21.2.0
 
 langchain
 langchain-community
-openai
+anthropic
+langchain-anthropic
 unstructured[all-docs]       
 faiss-cpu                   
 pydantic
