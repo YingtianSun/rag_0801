@@ -5,7 +5,7 @@ from langchain.embeddings import OpenAIEmbeddings
 from langchain.vectorstores import FAISS
 from langchain.schema import Document
 from langchain.chains.qa_with_sources import load_qa_with_sources_chain
-from langchain.chat_models import ChatOpenAI
+from langchain_anthropic import ChatAnthropic
 from langchain.document_loaders import PyPDFLoader
 import os
 
@@ -124,7 +124,11 @@ def rag_chain(vectorstore, query):
 
     relevant_docs = transcript_docs[:30] + agent_docs[:10]
 
-    llm = ChatOpenAI(temperature=0.5, model_name="gpt-4", max_tokens=3000)
+    llm = ChatAnthropic(
+        temperature=0.5,
+        model_name="claude-3-sonnet-20240229",
+        max_tokens=3000
+    )
     chain = load_qa_with_sources_chain(llm, chain_type="stuff")
     result = chain({"input_documents": relevant_docs, "question": query}, return_only_outputs=True)
 
