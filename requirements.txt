@@ -10,4 +10,4 @@ faiss-cpu
 pydantic
 pdfplumber                 
 tiktoken
-opneai
+openai
