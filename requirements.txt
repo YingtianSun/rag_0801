@@ -9,4 +9,5 @@ unstructured[all-docs]
 faiss-cpu                   
 pydantic
 pdfplumber                 
-tiktoken       
+tiktoken 
+sentence-transformers
