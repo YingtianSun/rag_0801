@@ -10,4 +10,3 @@ faiss-cpu
 pydantic
 pdfplumber                 
 tiktoken 
-sentence-transformers==2.2.2
