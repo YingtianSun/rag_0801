@@ -11,15 +11,16 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 index_cache = {}
 
 AGENT_DEFINITIONS = {
-    "HYPE": "HYPE (Marketing Intelligence Agent): Transforms marketing into a revenue engine through intelligent automation and data-driven campaign optimization, including social media content creation and multi-platform management, A/B testing optimization, and personalized email marketing.",
-    "STRIKE": "STRIKE (Sales Acceleration Agent): Optimizes sales processes with intelligent lead scoring, automated outreach, meeting scheduling, proposal and contract generation, increasing conversion rates and shortening sales cycles.",
-    "CARE": "CARE (Customer Experience Agent): Provides 24/7 customer support via AI voice receptionist and omnichannel chatbot; automates onboarding, collects and analyzes feedback to improve customer satisfaction and retention.",
-    "VISION": "VISION (Strategic Intelligence Agent): Delivers executive-level intelligence including business health diagnostics, cross-functional performance analysis, competitive intelligence, and customer behavior analytics to enhance decision-making and market response.",
-    "FLOW": "FLOW (Operations Excellence Agent): Improves operational efficiency through supply chain optimization, vendor management, quality control, and automated order fulfillment, reducing costs and improving delivery performance and compliance.",
-    "ASSET": "ASSET (Financial Intelligence Agent): Automates accounts receivable, invoice processing, expense management, and cash flow forecasting to improve collections, reduce processing costs, and enhance financial health.",
-    "TEAM": "TEAM (Human Capital Agent): Enhances recruitment, onboarding, performance management, and knowledge management to reduce turnover, accelerate time-to-productivity, and improve employee satisfaction.",
-    "CODE": "CODE (Technology Intelligence Agent): Provides intelligent infrastructure management including system integration, data architecture and quality management, machine learning deployment, and cloud infrastructure with cybersecurity."
+    "HYPE": "HYPE (Marketing Intelligence Agent)",
+    "STRIKE": "STRIKE (Sales Acceleration Agent)",
+    "CARE": "CARE (Customer Experience Agent)",
+    "VISION": "VISION (Strategic Intelligence Agent)",
+    "FLOW": "FLOW (Operations Excellence Agent)",
+    "ASSET": "ASSET (Financial Intelligence Agent)",
+    "TEAM": "TEAM (Human Capital Agent)",
+    "CODE": "CODE (Technology Intelligence Agent)"
 }
+
 
 @app.route("/match_agents", methods=["POST"])
 def match_agents():
