@@ -21,7 +21,6 @@ AGENT_DEFINITIONS = {
     "CODE": "CODE (Technology Intelligence Agent)"
 }
 
-
 @app.route("/match_agents", methods=["POST"])
 def match_agents():
     try:
@@ -49,11 +48,19 @@ def match_agents():
         index = build_faiss_index(chunks)
 
         session_id = request.form.get("session_id", "default")
+
         index_cache[session_id] = {
             "index": index,
             "transcript_path": str(transcript_path),
             "agent_path": str(agent_path)
         }
+
+        save_dir = f"/tmp/faiss_{session_id}"
+        try:
+            index.save_local(save_dir)
+            index_cache[session_id]["save_dir"] = save_dir
+        except Exception as _:
+            pass
 
         query = (
             "You are an AI strategy consultant. Based on the transcript content, identify business pain points.\n"
@@ -61,14 +68,17 @@ def match_agents():
             + "\n".join([f"- {v}" for v in AGENT_DEFINITIONS.values()]) + "\n\n"
             "Return a JSON array of relevant agent names, e.g., [\"CARE\", \"STRIKE\"] only."
         )
-        
+
         result = rag_chain(index, query)
-        return jsonify({"matched_agents": result})
+
+        return jsonify({
+            "matched_agents": result,
+            "session_id": session_id
+        })
 
     except Exception as e:
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500
-
 
 @app.route("/generate_agent_module", methods=["POST"])
 def generate_agent_module():
