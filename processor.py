@@ -135,7 +135,7 @@ def rag_chain(vectorstore, query: str):
     relevant_docs = transcript_docs[:30] + agent_docs[:10]
 
     llm = ChatAnthropic(
-        temperature=0.5,
+        temperature=0,
         model="claude-opus-4-1-20250805",
         max_tokens=3000
     )
