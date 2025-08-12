@@ -6,7 +6,6 @@ from langchain.vectorstores import FAISS
 from langchain.schema import Document
 from langchain.chains.qa_with_sources import load_qa_with_sources_chain
 from langchain_anthropic import ChatAnthropic
-from langchain.document_loaders import PyPDFLoader
 import os
 
 
@@ -15,7 +14,7 @@ def is_playbook(pdf_path: Path):
     return any(keyword in name for keyword in ["playbook", "circuit", "agent", "manual"])
 
 
-def extract_agents_from_text(text):
+def extract_agents_from_text(text: str):
     agent_list = ["HYPE", "STRIKE", "CARE", "VISION", "FLOW", "ASSET", "TEAM", "CODE"]
     agent_blocks = {}
     positions = [(agent, text.find(agent)) for agent in agent_list if agent in text]
@@ -31,6 +30,7 @@ def extract_agents_from_text(text):
 
 
 def load_all_documents(pdf_paths):
+
     all_sections = []
 
     for pdf_path in pdf_paths:
@@ -41,9 +41,10 @@ def load_all_documents(pdf_paths):
             extract_images_in_pdf=False
         )
 
-        full_text = "\n".join([el.text.strip() for el in elements if el.text and el.text.strip()])
+        full_text = "\n".join([el.text.strip() for el in elements if getattr(el, "text", None) and el.text.strip()])
 
         if is_playbook(pdf_path):
+
             agent_blocks = extract_agents_from_text(full_text)
             for agent, content in agent_blocks.items():
                 all_sections.append({
@@ -53,11 +54,12 @@ def load_all_documents(pdf_paths):
                     "type": "agent"
                 })
         else:
+
             current_title = "Untitled Section"
             for el in elements:
-                if el.text and el.text.strip():
+                if getattr(el, "text", None) and el.text.strip():
                     text = el.text.strip()
-                    if el.category == "Title":
+                    if getattr(el, "category", None) == "Title":
                         current_title = text
                     else:
                         all_sections.append({
@@ -71,6 +73,7 @@ def load_all_documents(pdf_paths):
 
 
 def split_into_chunks(sections, chunk_size=700, chunk_overlap=100):
+    
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=chunk_size,
         chunk_overlap=chunk_overlap,
@@ -82,7 +85,6 @@ def split_into_chunks(sections, chunk_size=700, chunk_overlap=100):
         text = sec["text"].replace("\n", " ")
 
         if sec.get("type") == "agent":
-
             documents.append(
                 Document(
                     page_content=text,
@@ -94,7 +96,6 @@ def split_into_chunks(sections, chunk_size=700, chunk_overlap=100):
                 )
             )
         else:
-
             chunks = splitter.split_text(text)
             for chunk in chunks:
                 documents.append(
@@ -107,17 +108,25 @@ def split_into_chunks(sections, chunk_size=700, chunk_overlap=100):
                         }
                     )
                 )
+
     return documents
 
+
 def build_faiss_index(documents):
+
     if not documents:
         raise ValueError(" No documents provided for indexing.")
-        
     embeddings = OpenAIEmbeddings()
     vectorstore = FAISS.from_documents(documents, embeddings)
     return vectorstore
 
-def rag_chain(vectorstore, query):
+
+def load_faiss_index(save_dir: str):
+    embeddings = OpenAIEmbeddings()
+    return FAISS.load_local(save_dir, embeddings, allow_dangerous_deserialization=True)
+
+
+def rag_chain(vectorstore, query: str):
     print(" Running similarity search...")
     all_docs = vectorstore.similarity_search(query, k=80)
     transcript_docs = [doc for doc in all_docs if doc.metadata.get("type") == "transcript"]
@@ -126,12 +135,11 @@ def rag_chain(vectorstore, query):
     relevant_docs = transcript_docs[:30] + agent_docs[:10]
 
     llm = ChatAnthropic(
-    temperature=0.5,
-    model="claude-opus-4-1-20250805",
-    max_tokens=3000
+        temperature=0.5,
+        model="claude-opus-4-1-20250805",
+        max_tokens=3000
     )
 
     chain = load_qa_with_sources_chain(llm, chain_type="stuff")
     result = chain({"input_documents": relevant_docs, "question": query}, return_only_outputs=True)
-
     return result["output_text"]
