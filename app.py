@@ -96,8 +96,6 @@ OUTPUT: Return STRICT JSON ONLY (no prose). Use this exact schema:
 }
 """
 
-
-
 def _safe_json_extract(text: str):
 
     try:
