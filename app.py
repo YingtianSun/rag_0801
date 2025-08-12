@@ -72,12 +72,12 @@ OUTPUT: Return STRICT JSON ONLY (no prose). Use this exact schema:
   "pain_points": ["..."],                  
   "eligibility": {                         
     "HYPE": {"eligible": false, "reason": "...", "evidence": []},
-    "STRIKE": {"eligible": true, "reason": "...", "evidence": ["<quote1>", "<quote2>"]},
+    "STRIKE": {"eligible": true, "reason": "...", "evidence": []},
     "CARE": {"eligible": false, "reason": "...", "evidence": []},
     "VISION": {"eligible": false, "reason": "...", "evidence": []},
-    "FLOW": {"eligible": true, "reason": "...", "evidence": ["<quote>"]},
+    "FLOW": {"eligible": true, "reason": "...", "evidence": []},
     "ASSET": {"eligible": false, "reason": "...", "evidence": []},
-    "TEAM": {"eligible": true, "reason": "...", "evidence": ["<quote>"]},
+    "TEAM": {"eligible": true, "reason": "...", "evidence": []},
     "CODE": {"eligible": false, "reason": "...", "evidence": []}
   },
   "agents": ["TEAM","FLOW","STRIKE"],      
@@ -286,9 +286,7 @@ def generate_agent_module():
 
         result = rag_chain(index, query)
         return jsonify({
-            "agent_module": result,
-            "used_pain_points": pain_points,
-            "matched_agents": matched_agents
+            "agent_module": result
         })
 
     except Exception as e:
