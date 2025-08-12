@@ -23,66 +23,65 @@ AGENT_DEFINITIONS = {
     "CODE": "CODE (Technology Intelligence Agent): Provides the technology foundation for AI-driven transformation through intelligent infrastructure management. Core scope includes business tool connection hub, data architecture & ML foundation, cloud infrastructure & cybersecurity, and predictive BI & ML engines."
 }
 
-# === GENERIC, CASE-AGNOSTIC GUARDRAILS FOR AGENT SELECTION ===
-GUARDRAILS = r"""
-Select ONLY from: HYPE, STRIKE, CARE, VISION, FLOW, ASSET, TEAM, CODE.
+query = (
+    "You are an AI strategy consultant. From the transcript + agent manual, extract top concrete business pain points (3–8 items, concise). "
+    "Then pick ONLY the most relevant agents that directly solve those pains. "
+    "Return STRICT JSON with keys: pain_points (array of strings), agents (array of agent codes), rationale (object mapping agent->one-sentence reason). "
+    "For each pain point, you MUST be able to cite 1–2 short quotes (≤30 words) from the context. If no evidence, do not include that pain.\n\n"
 
-GENERAL RULES (apply to all):
-- Include an agent ONLY if there is explicit, text-grounded evidence in the retrieved context/transcript/agent manual.
-- Do NOT infer or assume missing functions. Absence of evidence = not eligible.
-- For each agent you mark eligible, you must attach 1–3 short verbatim snippets (≤30 words each) that justify eligibility.
-- If no agents qualify, return an empty list for agents.
+    "Agent reference:\n"
+    + "\n".join([f"- {k}: {v}" for k, v in AGENT_DEFINITIONS.items()]) + "\n\n"
 
-ELIGIBILITY BY AGENT (INCLUDE IF / EXCLUDE IF):
+    # ===== Eligibility rubric (ADD THIS BLOCK) =====
+    "Eligibility Rubric (INCLUDE / EXCLUDE). Use these rules case-agnostically, evidence-gated:\n"
+    "- HYPE (Marketing):\n"
+    "  INCLUDE IF: Mentions social media/content/email automation, ads, A/B testing, audience segmentation, marketing ROI.\n"
+    "  EXCLUDE IF: No marketing-related activities.\n\n"
 
-- HYPE (Marketing):
-  INCLUDE IF: Mentions social media/content/email automation, ads, A/B testing, audience segmentation, marketing ROI optimization.
-  EXCLUDE IF: No marketing-related activities are mentioned.
+    "- STRIKE (Sales):\n"
+    "  INCLUDE IF: Mentions sales pipeline/stage management, lead scoring/qualification, cold outreach, meeting scheduling, proposals/quotations.\n"
+    "  EXCLUDE IF: No sales activities.\n\n"
 
-- STRIKE (Sales):
-  INCLUDE IF: Mentions sales pipeline/stage management, lead scoring/qualification, cold outreach, meeting scheduling, proposals/quotations.
-  EXCLUDE IF: No sales activity is mentioned.
+    "- CARE (Customer Experience/Support):\n"
+    "  INCLUDE IF: Mentions 24/7 or round-the-clock client support; FAQ/knowledge base/help center; chatbot/voice receptionist/ticket routing; escalation-to-human; compliance/regulation guidance (e.g., employment policy/law); multi-channel (web/WhatsApp/email/call) support; onboarding support.\n"
+    "  STRONG SIGNALS: 'FAQ', 'knowledge base', 'escalation', 'ticket', 'SLA', '24/7', 'after-hours', 'compliance', 'regulations', 'policy', 'helpdesk'.\n"
+    "  EXCLUDE IF: No customer support/service or knowledge-base/escalation workflows are present.\n\n"
 
-- CARE (Customer Experience/Support):
-  INCLUDE IF: Mentions customer support (voice/chat), helpdesk, ticket routing, customer onboarding, feedback collection, retention analytics.
-  EXCLUDE IF: No customer support/experience workflows are present.
+    "- VISION (Strategy/Executive Intelligence):\n"
+    "  INCLUDE IF: Cross-functional KPI analysis, market/competitive intelligence, exec dashboards, LTV/churn.\n"
+    "  EXCLUDE IF: Purely operational with no strategic layer.\n\n"
 
-- VISION (Strategy/Executive Intelligence):
-  INCLUDE IF: Mentions cross-functional KPI analysis, market/competitive intelligence, strategic decision support, LTV/churn analysis.
-  EXCLUDE IF: Purely operational with no strategic or executive insights.
+    "- FLOW (Operations/Back-office Automation):\n"
+    "  INCLUDE IF: Mentions process orchestration, vendor/supplier management, quality/compliance monitoring, order/fulfillment, back-office workflow automation.\n"
+    "  EXCLUDE IF: Only front-office (marketing/sales/support) and no ops automation.\n\n"
 
-- FLOW (Operations/Back-office Automation):
-  INCLUDE IF: Mentions supply chain, vendor management, quality monitoring, order fulfillment, back-office process orchestration.
-  EXCLUDE IF: Only front-office activities (marketing/sales/support) are present.
+    "- ASSET (Finance):\n"
+    "  INCLUDE IF: Mentions AR/AP, invoicing, invoice matching, expense control, cash-flow forecasting, financial reconciliation; OR payroll/timesheet/attendance processing including clock-in/out extraction, daily rate/OT/penalty calculation, benefits/tax/social-security contributions.\n"
+    "  STRONG SIGNALS: 'timesheet', 'attendance', 'clock-in', 'clock-out', 'payroll', 'overtime', 'daily rate', 'penalty', 'reconciliation', 'AR', 'AP', 'invoice', 'cash flow', 'tax', 'social security'.\n"
+    "  EXCLUDE IF: No finance or payroll/accounting operations are present.\n\n"
 
-- ASSET (Finance):
-  INCLUDE IF: Mentions AR/AP, invoicing, invoice matching, expense control, cash-flow forecasting.
-  EXCLUDE IF: No finance operations are mentioned.
-  
-- TEAM (Human Capital/Talent):
-  INCLUDE IF: Mentions recruiting/sourcing/screening, onboarding, performance tracking, internal knowledge base.
-  EXCLUDE IF: No HR/talent themes are present.
+    "- TEAM (Human Capital/Talent):\n"
+    "  INCLUDE IF: Recruiting/sourcing/screening, onboarding, performance tracking/development, internal knowledge base, skills matching.\n"
+    "  EXCLUDE IF: No HR/talent themes.\n\n"
 
-- CODE (Tech Foundation/Integration):
-  INCLUDE IF: Mentions system integration/API, data pipelines, model operations, cloud/security/monitoring.
-  EXCLUDE IF: No integration/infrastructure needs are present.
+    "- CODE (Tech Foundation/Integration):\n"
+    "  INCLUDE IF: System integration/API, data pipelines/sync, model operations, cloud/security/monitoring, BI/ML platforming.\n"
+    "  EXCLUDE IF: No integration/infrastructure needs.\n\n"
 
-OUTPUT: Return STRICT JSON ONLY (no prose). Use this exact schema:
-{
-  "pain_points": ["..."],                  
-  "eligibility": {                         
-    "HYPE": {"eligible": false, "reason": "...", "evidence": []},
-    "STRIKE": {"eligible": false, "reason": "...", "evidence": []},
-    "CARE": {"eligible": false, "reason": "...", "evidence": []},
-    "VISION": {"eligible": false, "reason": "...", "evidence": []},
-    "FLOW": {"eligible": false, "reason": "...", "evidence": []},
-    "ASSET": {"eligible": false, "reason": "...", "evidence": []},
-    "TEAM": {"eligible": false, "reason": "...", "evidence": []},
-    "CODE": {"eligible": false, "reason": "...", "evidence": []}
-  }
-}
-"""
+    # ===== Evidence-gated extraction =====
+    "Evidence-Gated Extraction Rules:\n"
+    "- Output pain points ONLY if supported by explicit quotes from the retrieved context.\n"
+    "- Do NOT merge specific operational processes into generic buckets. If 'monthly timesheets' or '24/7 client support' appears, keep them as distinct pain points.\n"
+    "- Stay domain-neutral (no client or vendor names). No solutioning in this step.\n\n"
 
+    # ===== Output schema =====
+    "JSON schema example:\n"
+    "{\n"
+    "  \"pain_points\": [\"...\", \"...\"],\n"
+    "  \"agents\": [\"TEAM\", \"FLOW\"],\n"
+    "  \"rationale\": {\"TEAM\": \"...\", \"FLOW\": \"...\"}\n"
+    "}\n"
+)
 
 
 def _safe_json_extract(text: str):
