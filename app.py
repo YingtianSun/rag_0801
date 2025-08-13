@@ -126,6 +126,32 @@ def _safe_json_extract(text: str):
         return None
     return None
 
+# ---------- Minimal outcome linter to prevent overlaps (post-generation) ----------
+FORBIDDEN_BY_AGENT = {
+    # Finance outcomes are forbidden for non-ASSET agents
+    "CARE": [
+        "reconciliation", "invoice", "ar/ap", "ar / ap", "cash flow", "insurance form"
+    ],
+    "FLOW": [
+        "reconciliation", "invoice", "insurance form", "24/7", "chatbot", "feedback", "emr extraction"
+    ],
+    "ASSET": [
+        "24/7", "after-hours", "chatbot", "voice", "feedback", "knowledge base", "data platform", "emr extraction", "unified data platform"
+    ],
+    "CODE": [
+        "reconciliation", "invoice", "insurance form", "24/7", "chatbot", "feedback", "collections", "ar/ap"
+    ]
+}
+
+def lint_outcomes(agent: str, text: str):
+    text_l = (text or "").lower()
+    violations = []
+    for term in FORBIDDEN_BY_AGENT.get(agent, []):
+        if term.lower() in text_l:
+            violations.append(term)
+    return violations
+# -------------------------------------------------------------------------------
+
 
 @app.route("/match_agents", methods=["POST"])
 def match_agents():
@@ -268,15 +294,29 @@ def generate_agent_module():
 
         pain_points_block = "\n".join([f"- {pp}" for pp in pain_points]) if pain_points else "- (no extracted pain points)"
 
-        # Prompt: general framing; rely on textual guardrails; no programmatic capability allow/ban
+        # Outcome ownership: allow only non-overlapping outcome families per agent (prompt-level)
+        OUTCOME_OWNERSHIP = (
+            "Outcome ownership (no overlap):\n"
+            "- CARE may include: 24/7 inquiry handling, feedback collection, response/resolve time, escalation quality. "
+            "Forbidden: reconciliation, invoicing, AR/AP, insurance form automation, data platform ownership.\n"
+            "- FLOW may include: non-finance process orchestration, SLA adherence, handoff error reduction, batch run timeliness. "
+            "Forbidden: reconciliation, insurance forms, 24/7 inquiry ownership, EMR extraction ownership.\n"
+            "- ASSET may include: monthly reconciliation, insurance form automation, payment tracking/collections, cash-flow visibility/DSO. "
+            "Forbidden: 24/7 inquiry, feedback ops, data platform ownership.\n"
+            "- CODE may include: unified data platform, real-time sync, EMR data extraction/structuring, APIs/webhooks, monitoring. "
+            "Forbidden: business outcomes for finance (reconciliation/forms) or CX (24/7/feedback).\n"
+        )
+
+        # Prompt: general framing; rely on textual guardrails + outcome ownership
         query = (
             f"You are an AI consultant. Write a general (industry-agnostic) solution module for the agent {agent_name}, "
-            f"anchored to the pains below and following the uniqueness (no-overlap) rules in the guardrails.\n\n"
+            f"anchored to the pains below and following the uniqueness (no-overlap) rules and outcome ownership.\n\n"
             f"OFFICIAL AGENT DEFINITION (reference only, do not copy blindly):\n{agent_definition}\n\n"
             f"PAIN POINTS (authoritative anchors):\n{pain_points_block}\n\n"
             "HARD RULES:\n"
             "● Use the pains as PRIMARY constraints; only include features/impacts/outcomes that directly map to these pains.\n"
-            "● Do not reference other agents. Use plain text only; no Markdown emphasis.\n\n"
+            "● Do not reference other agents. Use plain text only; no Markdown emphasis.\n"
+            f"● Follow outcome ownership strictly:\n{OUTCOME_OWNERSHIP}\n"
             "Follow this structure exactly:\n\n"
             f"{agent_name} – [AGENT TITLE]\n"
             "This solution [≥120 words; describe what this agent does based on the pains; focus ONLY on relevant workflows].\n\n"
@@ -293,7 +333,7 @@ def generate_agent_module():
             "Transformation Summary:\n"
             "Summarize how this agent transforms operations, anchored to pains (general framing).\n\n"
             "Expected Outcomes:\n"
-            "List 4–5 achievable outcomes directly supported by pains/manual.\n"
+            "List 4–5 achievable outcomes directly supported by pains/manual and within outcome ownership.\n"
             "● [Outcome 1]\n"
             "● [Outcome 2]\n"
             "● [Outcome 3]\n"
@@ -303,6 +343,18 @@ def generate_agent_module():
         )
 
         result = rag_chain(index, query)
+
+        # ---------- Post-generation lint to block obvious overlaps ----------
+        violations = lint_outcomes(agent_name, result)
+        if violations:
+            return jsonify({
+                "error": f"Generated text violates ownership for {agent_name}.",
+                "violations": violations,
+                "hint": "Please regenerate with stricter adherence to outcome ownership and guardrails.",
+                "agent_module": result
+            }), 400
+        # -------------------------------------------------------------------
+
         return jsonify({
             "agent_module": result
         })
@@ -316,3 +368,4 @@ if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5055))
     print(f"Starting server on port {port} ...")
     app.run(host="0.0.0.0", port=port)
+
