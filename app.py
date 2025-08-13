@@ -136,7 +136,7 @@ def match_agents():
                 "type": "company"
             })
 
-        chunks = split_into_chunks(sections, chunk_size=300, chunk_overlap=50)
+        chunks = split_into_chunks(sections, chunk_size=500, chunk_overlap=50)
         index = build_faiss_index(chunks)
 
         session_id = request.form.get("session_id", "default")
