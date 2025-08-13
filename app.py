@@ -253,7 +253,7 @@ def generate_agent_module():
 
         pain_points_block = "\n".join([f"- {pp}" for pp in pain_points]) if pain_points else "- (no extracted pain points)"
 
-        query = (
+       query = (
         f"You are an AI consultant. Write a full structured solution module for the agent {agent_name}, "
         f"tailored specifically to the client's industry and the pain points below.\n\n"
         f"OFFICIAL AGENT DEFINITION (reference only, do not copy blindly):\n{agent_definition}\n\n"
@@ -262,37 +262,32 @@ def generate_agent_module():
         "● Use the pain points and transcript context as PRIMARY constraints.\n"
         "● Include ONLY features/impacts/outcomes that directly map to these pains and the client's industry context.\n"
         "● If a feature is not supported by the agent manual or not relevant to the pains, exclude it.\n"
-        "● Do NOT mention or reference any other agents.\n"
-        "● Use plain text only; do not use bold (**), italics (*), or other Markdown formatting.\n\n"
+        "● Do NOT mention or reference any other agents.\n\n"
         "Company description (if any):\n"
         f"{merged_company_info}\n\n"
         "Follow this exact structure:\n\n"
         f"{agent_name} – [AGENT TITLE]\n"
         "This solution [≥120 words; describe what this agent does for the business based on the pains above; focus ONLY on relevant workflows].\n\n"
         "Key Features:\n"
-        "● Write each feature as 'Title: description' with plain text only, no Markdown formatting.\n"
-        "● Pick features that match the pains; each description should be 1–2 sentences.\n"
+        "● [Pick features that match the pains; >2 full sentences total.]\n"
         "● ...\n"
         "● ...\n"
         "● ...\n\n"
         "Business Impact:\n"
-        "● Summarize realistic impacts based on the client's industry and pains.\n"
-        "● Use qualitative descriptions or achievable improvement ranges instead of precise, unverifiable numbers.\n"
-        "● Focus on how the solution addresses the pains and delivers measurable or observable value.\n"
+        "● [Summarize only impact metrics realistic for the client's industry given these pains; ≥2 full sentences.]\n"
         "● ...\n"
         "● ...\n"
         "● ...\n\n"
         "Transformation Summary:\n"
         "Summarize how this agent transforms the client’s operations, anchored to the pains and the industry context.\n\n"
         "Expected Outcomes:\n"
-        "List 4–5 realistic outcomes directly supported by the pains/manual.\n"
-        "● Use achievable, qualitative statements that reflect tangible benefits (e.g., improved efficiency, reduced errors, enhanced customer satisfaction).\n"
-        "● Include ranges or directional terms ('significant improvement', 'moderate increase') only when appropriate.\n"
+        "List 4–5 outcomes that are directly supported by the pains/manual, e.g.:\n"
+        "● Operational Efficiency: Automation of manual tasks frees up staff time\n"
         "● [Outcome 2]\n"
         "● [Outcome 3]\n"
         "● [Outcome 4]\n"
         "● [Outcome 5]\n"
-        )
+        ) 
 
         result = rag_chain(index, query)
         return jsonify({
