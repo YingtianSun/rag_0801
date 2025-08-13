@@ -176,13 +176,18 @@ def match_agents():
             pass
 
         query = (
-            "You are an AI strategy consultant.\n"
-            "- Extract 3–8 general, industry-agnostic pain points (concise, no client/vendor names).\n"
-            "- Then select ONLY the agents that directly solve them, strictly following the guardrails and uniqueness rules (no capability overlap).\n"
-            "Return STRICT JSON only with keys: pain_points, eligibility, agents, rationale.\n"
-            "Attach 1–3 short verbatim snippets (≤30 words) inside eligibility for each eligible agent.\n\n"
-            "Agent reference:\n" + "\n".join([f"- {k}: {v}" for k,v in AGENT_DEFINITIONS.items()]) + "\n\n"
+            "You are an AI strategy consultant. From the transcript + agent manual, extract top concrete business pain points (3–8 items, concise). "
+            "Then pick ONLY the most relevant agents that directly solve those pains. "
+            "Return STRICT JSON with keys: pain_points (array of strings), agents (array of agent codes), rationale (object mapping agent->one-sentence reason). "
+            "DO NOT add prose outside JSON.\n\n"
+            "Agent reference:\n" + "\n".join([f"- {k}: {v}" for k, v in AGENT_DEFINITIONS.items()]) + "\n\n"
             f"{GUARDRAILS}\n"
+            "JSON schema example:\n"
+            "{\n"
+            "  \"pain_points\": [\"...\", \"...\"],\n"
+            "  \"agents\": [\"TEAM\", \"FLOW\"],\n"
+            "  \"rationale\": {\"TEAM\": \"...\", \"FLOW\": \"...\"}\n"
+            "}\n"
         )
 
         result_text = rag_chain(index, query)
