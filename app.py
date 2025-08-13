@@ -127,6 +127,19 @@ def remove_forbidden_lines(agent: str, text: str):
             kept.append(ln)
     return "\n".join(kept).strip(), removed
 
+def strip_meta(text: str):
+    """Remove code fences and SOURCES lines to keep plain text only."""
+    t = text or ""
+    t = re.sub(r"```.*?```", "", t, flags=re.S)  # remove fenced blocks
+    lines = []
+    for ln in t.splitlines():
+        if ln.strip().lower().startswith("sources:"):
+            continue
+        if ln.strip().startswith("```"):
+            continue
+        lines.append(ln)
+    return "\n".join(lines).strip()
+
 @app.route("/match_agents", methods=["POST"])
 def match_agents():
     try:
@@ -232,10 +245,8 @@ def generate_agent_module():
         matched_agents = cached.get("matched_agents", [])
         merged_company_info = (company_info or cached.get("company_info", "")).strip()
 
-        # soft gate: if agent not matched and not forced, still try but allow fallback
         pain_points_block = "\n".join([f"- {pp}" for pp in pain_points]) if pain_points else "- (no extracted pain points)"
 
-        # Outcome ownership (all 8 agents, concise)
         OUTCOME_OWNERSHIP = (
             "Outcome ownership (no overlap; examples, not exhaustive):\n"
             "- HYPE Allowed: CTR/engagement, conversion lift from experiments, segmentation precision, creative turnaround, content calendar automation, A/B win-rate, lower CPA/CPM. "
@@ -256,13 +267,13 @@ def generate_agent_module():
             "Forbidden: finance outcomes (reconciliation/invoices/AR/AP/claims), 24/7/chatbot/feedback ops, marketing/sales/HR outcomes.\n"
         )
 
-        # Prompt with "no meta-discussion" + fixed empty case
         query = (
             f"You are an AI consultant. Write an industry-agnostic solution module for {agent_name}, "
             f"anchored to the pains below and following uniqueness rules and outcome ownership.\n\n"
             f"OFFICIAL AGENT DEFINITION (reference only):\n{agent_definition}\n\n"
             f"PAIN POINTS (authoritative anchors):\n{pain_points_block}\n\n"
             "HARD RULES:\n"
+            "● Return PLAIN TEXT only. Do NOT output JSON, code fences, or a 'SOURCES:' line.\n"
             "● Use the pains as PRIMARY constraints; only include features/impacts/outcomes that directly map to these pains.\n"
             "● Do NOT explain or restate forbidden capabilities. Do NOT mention guardrails/ownership in the output.\n"
             "● If no valid content remains for this agent given the pains, output exactly:\n"
@@ -285,29 +296,23 @@ def generate_agent_module():
 
         result = rag_chain(index, query)
 
-        # 1) If model says "No relevant outcomes..." -> return as-is (safe, non-overlap)
+        # --- sanitize meta noise (code fences / SOURCES) ---
+        result = strip_meta(result)
+
+        # --- Silent handling for "no relevant outcomes" ---
         safe_empty = "No relevant outcomes for this agent given the pains."
         if result.strip() == safe_empty:
-            return jsonify({"agent_module": result, "warnings": ["no-relevant-outcomes"]})
+            return jsonify({"agent_module": ""})
 
-        # 2) Remove lines containing forbidden terms; collect what was removed
-        cleaned, removed_lines = remove_forbidden_lines(agent_name, result)
+        # --- remove lines containing forbidden terms ---
+        cleaned, _removed_lines = remove_forbidden_lines(agent_name, result)
 
-        # 3) Re-check violations on cleaned text; if still present, fallback to safe empty
-        remaining = find_violations(agent_name, cleaned)
-        if remaining:
-            return jsonify({
-                "agent_module": safe_empty,
-                "warnings": ["fallback-empty-due-to-remaining-violations"],
-                "removed_line_count": len(removed_lines)
-            })
+        # --- final guard: still violations? return empty string silently ---
+        if find_violations(agent_name, cleaned):
+            return jsonify({"agent_module": ""})
 
-        # 4) Return cleaned text (never 400), with optional warnings
-        payload = {"agent_module": cleaned}
-        if removed_lines:
-            payload["warnings"] = ["removed-forbidden-lines"]
-            payload["removed_line_count"] = len(removed_lines)
-        return jsonify(payload)
+        # success, only return agent_module
+        return jsonify({"agent_module": cleaned})
 
     except Exception as e:
         traceback.print_exc()
@@ -317,4 +322,3 @@ if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5055))
     print(f"Starting server on port {port} ...")
     app.run(host="0.0.0.0", port=port)
-
