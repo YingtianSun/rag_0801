@@ -4,6 +4,7 @@ from pathlib import Path
 import os
 import traceback
 import json
+import re
 
 app = Flask(__name__)
 UPLOAD_FOLDER = "uploads"
@@ -23,11 +24,11 @@ AGENT_DEFINITIONS = {
     "CODE": "CODE (Technology Intelligence Agent): Provides integration & data platform. Core scope: APIs/connectors, data pipelines & governance, ML/BI foundation, cloud/security."
 }
 
-# === Text-only GUARDRAILS (prompt-enforced; no programmatic ownership logic) ===
+# === Text-only GUARDRAILS (prompt-enforced) ===
 GUARDRAILS = r"""
 Select ONLY from: HYPE, STRIKE, CARE, VISION, FLOW, ASSET, TEAM, CODE.
 
-GENERAL RULES (apply to all):
+GENERAL RULES:
 - Industry-agnostic. Use domain-neutral wording (no client/vendor names).
 - Evidence-gated: Include an agent ONLY if explicitly supported by retrieved text.
 - Do NOT infer or assume missing functions. Absence of evidence = not eligible.
@@ -35,61 +36,37 @@ GENERAL RULES (apply to all):
 - If no agents qualify, return an empty list for agents.
 - Keep specific processes distinct (e.g., 'monthly timesheets/payroll' vs. '24/7 client support/FAQ').
 
-UNIQUENESS / NO-OVERLAP RULES (prompt-level; model must comply):
-- A capability may be assigned to ONE official owner agent only. When multiple agents appear to share the same capability, assign it ONLY to its official owner below.
-- Do NOT list the same capability under more than one agent, even if context suggests overlap.
-- If text is ambiguous, choose the single best-fit agent per capability and state the reason concisely.
+UNIQUENESS / NO-OVERLAP:
+- A capability may be assigned to ONE owner agent only (see owners below).
+- Do NOT list the same capability under multiple agents, even if context suggests overlap.
+- If ambiguous, choose the single best-fit agent per capability and state the reason concisely.
 
-OFFICIAL CAPABILITY OWNERS (reference only; do not cross-list):
-- Finance-only → ASSET: reconciliation, invoice matching, AR/AP, expense control, cash-flow forecasting, payroll/timesheets/attendance.
-- CX-only → CARE: 24/7 support, FAQ/knowledge base, chatbot/voice receptionist, ticket routing, escalation-to-human.
-- Marketing-only → HYPE: content automation, cross-platform orchestration, audience segmentation, A/B testing & optimization.
-- Sales-only → STRIKE: lead scoring/qualification, pipeline stage progression, outreach/scheduling, proposals/quotations.
-- Strategy-only → VISION: exec KPIs, strategic decision support, competitive/market intelligence, LTV/churn.
-- Operations-only → FLOW: process orchestration, vendor/supplier coordination, fulfillment/SLAs, quality/compliance monitoring.
-- HR-only → TEAM: recruiting/sourcing/screening, onboarding, performance/development, internal knowledge.
-- Tech-only → CODE: system integration/APIs, data pipelines/sync, model ops, BI/ML platform, cloud/security/monitoring.
+OFFICIAL CAPABILITY OWNERS (reference, no cross-listing):
+- Finance → ASSET: reconciliation, invoice matching, AR/AP, expense control, cash-flow forecasting, payroll/timesheets/attendance.
+- CX → CARE: 24/7 support, FAQ/knowledge base, chatbot/voice, ticket routing, escalation-to-human.
+- Marketing → HYPE: content automation, cross-platform orchestration, audience segmentation, A/B testing & optimization.
+- Sales → STRIKE: lead scoring/qualification, pipeline stage progression, outreach/scheduling, proposals/quotations.
+- Strategy → VISION: exec KPIs, strategic decision support, competitive/market intelligence, LTV/churn.
+- Operations → FLOW: process orchestration, vendor/supplier coordination, fulfillment/SLAs, quality/compliance monitoring.
+- HR → TEAM: recruiting/sourcing/screening, onboarding, performance/development, internal knowledge.
+- Tech/Data → CODE: APIs/integration, data pipelines/sync, model ops, BI/ML platform, cloud/security/monitoring.
 
-PAIN-POINT EXTRACTION (case-agnostic, evidence-gated):
+PAIN-POINT EXTRACTION:
 - Extract 3–8 concise, non-duplicative pain points.
 - Each pain point MUST include 1–2 short quotes (≤30 words) from retrieved text.
 - Use neutral wording (no client/vendor names).
 
 ELIGIBILITY BY AGENT (INCLUDE IF / EXCLUDE IF):
+- HYPE: INCLUDE IF social/content/email automation, ads, A/B testing, segmentation, marketing ROI optimization. EXCLUDE IF no marketing activity.
+- STRIKE: INCLUDE IF pipeline/stage, lead scoring/qualification, cold outreach, meeting scheduling, proposals. EXCLUDE IF no sales.
+- CARE: INCLUDE IF 24/7 or after-hours, FAQ/KB/help center, chatbot/voice, ticket routing, escalation, compliance/policy, onboarding, multi-channel (web/WhatsApp/email/call). EXCLUDE IF no CX/KB/escalation.
+- VISION: INCLUDE IF cross-functional KPIs, competitive/market intel, decision support, LTV/churn. EXCLUDE IF purely operational.
+- FLOW: INCLUDE IF process orchestration, vendor/supplier mgmt, quality/compliance, order/fulfillment, back-office automation. EXCLUDE IF only front-office.
+- ASSET: INCLUDE IF AR/AP, invoicing, invoice matching, reconciliation, expense control, cash-flow forecasting; OR payroll/timesheet/attendance. EXCLUDE IF no finance/payroll/accounting.
+- TEAM: INCLUDE IF recruiting/sourcing/screening, onboarding, performance tracking/development, internal knowledge base, skills matching. EXCLUDE IF no HR/talent.
+- CODE: INCLUDE IF integration/API, data pipelines/sync, model ops, cloud/security/monitoring, BI/ML platform. EXCLUDE IF no integration/infrastructure.
 
-- HYPE (Marketing):
-  INCLUDE IF: social/content/email automation, ads, A/B testing, segmentation, marketing ROI optimization.
-  EXCLUDE IF: no marketing activities.
-
-- STRIKE (Sales):
-  INCLUDE IF: pipeline/stage management, lead scoring/qualification, cold outreach, meeting scheduling, proposals/quotations.
-  EXCLUDE IF: no sales activity.
-
-- CARE (Customer Experience/Support):
-  INCLUDE IF: 24/7 or after-hours support; FAQ/knowledge base/help center; chatbot/voice; ticket routing; escalation; compliance/policy guidance; onboarding support; multi-channel service (web/WhatsApp/email/call).
-  EXCLUDE IF: no CX/support or KB/escalation workflows.
-
-- VISION (Strategy/Executive Intelligence):
-  INCLUDE IF: cross-functional KPIs, competitive/market intel, strategic decision support, LTV/churn analysis.
-  EXCLUDE IF: purely operational, no executive insights.
-
-- FLOW (Operations/Back-office):
-  INCLUDE IF: process orchestration, vendor/supplier management, quality/compliance monitoring, order/fulfillment, back-office automation.
-  EXCLUDE IF: only front-office (marketing/sales/support).
-
-- ASSET (Finance):
-  INCLUDE IF: AR/AP, invoicing, invoice matching, reconciliation, expense control, cash-flow forecasting; OR payroll/timesheet/attendance (clock-in/out, overtime, daily-rate/penalty, benefits/tax/social security).
-  EXCLUDE IF: no finance/payroll/accounting.
-
-- TEAM (Human Capital/Talent):
-  INCLUDE IF: recruiting/sourcing/screening, onboarding, performance tracking/development, internal knowledge base, skills matching.
-  EXCLUDE IF: no HR/talent themes.
-
-- CODE (Tech Foundation/Integration):
-  INCLUDE IF: system integration/API, data pipelines/sync, model ops, cloud/security/monitoring, BI/ML platform.
-  EXCLUDE IF: no integration/infrastructure needs.
-
-OUTPUT: Return STRICT JSON ONLY (no prose). Use this exact schema:
+OUTPUT (STRICT JSON ONLY):
 {
   "pain_points": ["..."],
   "eligibility": {
@@ -103,11 +80,7 @@ OUTPUT: Return STRICT JSON ONLY (no prose). Use this exact schema:
     "CODE": {"eligible": false, "reason": "...", "evidence": []}
   },
   "agents": ["TEAM","FLOW","STRIKE"],
-  "rationale": {
-    "TEAM": "...",
-    "FLOW": "...",
-    "STRIKE": "..."
-  }
+  "rationale": {"TEAM": "...","FLOW": "...","STRIKE": "..."}
 }
 """
 
@@ -120,38 +93,39 @@ def _safe_json_extract(text: str):
         start = text.find("{")
         end = text.rfind("}")
         if start != -1 and end != -1 and end > start:
-            candidate = text[start:end+1]
-            return json.loads(candidate)
+            return json.loads(text[start:end+1])
     except Exception:
         return None
     return None
 
-# ---------- Minimal outcome linter to prevent overlaps (post-generation) ----------
+# --- Minimal ownership: forbid obvious cross-agent outcomes (lowercase match) ---
 FORBIDDEN_BY_AGENT = {
-    # Finance outcomes are forbidden for non-ASSET agents
-    "CARE": [
-        "reconciliation", "invoice", "ar/ap", "ar / ap", "cash flow", "insurance form"
-    ],
-    "FLOW": [
-        "reconciliation", "invoice", "insurance form", "24/7", "chatbot", "feedback", "emr extraction"
-    ],
-    "ASSET": [
-        "24/7", "after-hours", "chatbot", "voice", "feedback", "knowledge base", "data platform", "emr extraction", "unified data platform"
-    ],
-    "CODE": [
-        "reconciliation", "invoice", "insurance form", "24/7", "chatbot", "feedback", "collections", "ar/ap"
-    ]
+    "HYPE":  ["reconciliation","invoice","insurance form","claims","ar/ap","cash flow","24/7","chatbot","ticket","knowledge base","emr extraction","data platform"],
+    "STRIKE":["reconciliation","invoice","insurance form","claims","ar/ap","cash flow","24/7","chatbot","feedback","knowledge base","emr extraction","data platform"],
+    "CARE":  ["reconciliation","invoice","insurance form","claims","ar/ap","cash flow","pipeline","proposal","ab testing","emr extraction","data platform"],
+    "VISION":["reconciliation","invoice","insurance form","claims","ar/ap","24/7","chatbot","feedback","onboarding (hr)","emr extraction","data platform ownership"],
+    "FLOW":  ["reconciliation","invoice","insurance form","claims","24/7","chatbot","feedback","emr extraction"],
+    "ASSET": ["24/7","after-hours","chatbot","feedback","knowledge base","pipeline","ab testing","data platform","emr extraction","unified data platform"],
+    "TEAM":  ["reconciliation","invoice","insurance form","claims","ar/ap","24/7","chatbot","ab testing","pipeline","data platform","emr extraction"],
+    "CODE":  ["reconciliation","invoice","insurance form","claims","ar/ap","24/7","chatbot","feedback","collections"]
 }
 
-def lint_outcomes(agent: str, text: str):
-    text_l = (text or "").lower()
-    violations = []
-    for term in FORBIDDEN_BY_AGENT.get(agent, []):
-        if term.lower() in text_l:
-            violations.append(term)
-    return violations
-# -------------------------------------------------------------------------------
+def find_violations(agent: str, text: str):
+    t = (text or "").lower()
+    return sorted({term for term in FORBIDDEN_BY_AGENT.get(agent, []) if term in t})
 
+def remove_forbidden_lines(agent: str, text: str):
+    """Delete any line containing a forbidden term; keep structure simple."""
+    forb = [f.lower() for f in FORBIDDEN_BY_AGENT.get(agent, [])]
+    lines = (text or "").splitlines()
+    kept, removed = [], []
+    for ln in lines:
+        ll = ln.lower()
+        if any(term in ll for term in forb):
+            removed.append(ln)
+        else:
+            kept.append(ln)
+    return "\n".join(kept).strip(), removed
 
 @app.route("/match_agents", methods=["POST"])
 def match_agents():
@@ -164,23 +138,16 @@ def match_agents():
         transcript_file.save(transcript_path)
         agent_file.save(agent_path)
 
-        company_info = request.form.get("company_info", None) or ""
+        company_info = request.form.get("company_info", "") or ""
 
         sections = load_all_documents([transcript_path, agent_path])
-
         if company_info:
-            sections.append({
-                "title": "Company Info",
-                "text": company_info,
-                "source": "web_summary",
-                "type": "company"
-            })
+            sections.append({"title":"Company Info","text":company_info,"source":"web_summary","type":"company"})
 
         chunks = split_into_chunks(sections, chunk_size=500, chunk_overlap=50)
         index = build_faiss_index(chunks)
 
         session_id = request.form.get("session_id", "default")
-
         index_cache[session_id] = {
             "index": index,
             "transcript_path": str(transcript_path),
@@ -195,38 +162,28 @@ def match_agents():
         except Exception:
             pass
 
-        # Prompt: industry-agnostic + uniqueness rules (prompt-level only)
         query = (
             "You are an AI strategy consultant.\n"
             "- Extract 3–8 general, industry-agnostic pain points (concise, no client/vendor names).\n"
-            "- Then select ONLY the agents that directly solve them, strictly following the guardrails and uniqueness rules below (no capability overlap across agents).\n"
-            "Return STRICT JSON only with keys: pain_points (array), agents (array of agent codes), rationale (map agent->one sentence reason).\n"
+            "- Then select ONLY the agents that directly solve them, strictly following the guardrails and uniqueness rules (no capability overlap).\n"
+            "Return STRICT JSON only with keys: pain_points, eligibility, agents, rationale.\n"
             "Attach 1–3 short verbatim snippets (≤30 words) inside eligibility for each eligible agent.\n\n"
-            "Agent reference:\n" + "\n".join([f"- {k}: {v}" for k, v in AGENT_DEFINITIONS.items()]) + "\n\n"
+            "Agent reference:\n" + "\n".join([f"- {k}: {v}" for k,v in AGENT_DEFINITIONS.items()]) + "\n\n"
             f"{GUARDRAILS}\n"
-            "JSON schema example:\n"
-            "{\n"
-            "  \"pain_points\": [\"...\", \"...\"],\n"
-            "  \"agents\": [\"TEAM\", \"FLOW\"],\n"
-            "  \"rationale\": {\"TEAM\": \"...\", \"FLOW\": \"...\"}\n"
-            "}\n"
         )
 
         result_text = rag_chain(index, query)
-        parsed = _safe_json_extract(result_text)
+        parsed = _safe_json_extract(result_text) or {}
 
-        pain_points = []
-        matched_agents = []
-        rationale = {}
+        pain_points = parsed.get("pain_points", []) or []
+        matched_agents = parsed.get("agents", []) or []
+        rationale = parsed.get("rationale", {}) or {}
 
-        if isinstance(parsed, dict):
-            pain_points = parsed.get("pain_points", []) or []
-            matched_agents = parsed.get("agents", []) or []
-            rationale = parsed.get("rationale", {}) or {}
-
-        index_cache[session_id]["pain_points"] = pain_points
-        index_cache[session_id]["matched_agents"] = matched_agents
-        index_cache[session_id]["rationale"] = rationale
+        index_cache[session_id].update({
+            "pain_points": pain_points,
+            "matched_agents": matched_agents,
+            "rationale": rationale
+        })
 
         return jsonify({
             "session_id": session_id,
@@ -240,7 +197,6 @@ def match_agents():
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500
 
-
 @app.route("/generate_agent_module", methods=["POST"])
 def generate_agent_module():
     try:
@@ -250,29 +206,23 @@ def generate_agent_module():
         force = bool(request.json.get("force", False))
 
         cached = index_cache.get(session_id)
-
         if not cached:
             save_dir = f"/tmp/faiss_{session_id}"
             if os.path.isdir(save_dir):
-                try:
-                    index = load_faiss_index(save_dir)
-                    index_cache[session_id] = {
-                        "index": index,
-                        "transcript_path": "",
-                        "agent_path": "",
-                        "company_info": company_info,
-                        "save_dir": save_dir,
-                        "pain_points": [],
-                        "matched_agents": [],
-                        "rationale": {}
-                    }
-                    cached = index_cache[session_id]
-                except Exception:
-                    pass
+                index_cache[session_id] = {
+                    "index": load_faiss_index(save_dir),
+                    "transcript_path": "",
+                    "agent_path": "",
+                    "company_info": company_info,
+                    "save_dir": save_dir,
+                    "pain_points": [],
+                    "matched_agents": [],
+                    "rationale": {}
+                }
+                cached = index_cache[session_id]
 
         if not cached:
             return jsonify({"error": "No index found for session."}), 400
-
         if agent_name not in AGENT_DEFINITIONS:
             return jsonify({"error": f"Invalid agent name: {agent_name}"}), 400
 
@@ -280,89 +230,88 @@ def generate_agent_module():
         agent_definition = AGENT_DEFINITIONS[agent_name]
         pain_points = request.json.get("pain_points") or cached.get("pain_points", [])
         matched_agents = cached.get("matched_agents", [])
-        company_info_cached = cached.get("company_info", "")
+        merged_company_info = (company_info or cached.get("company_info", "")).strip()
 
-        merged_company_info = company_info.strip() or company_info_cached
-
-        if matched_agents and (agent_name not in matched_agents) and not force:
-            return jsonify({
-                "error": f"Agent '{agent_name}' is not relevant to extracted pain points.",
-                "matched_agents": matched_agents,
-                "pain_points": pain_points,
-                "hint": "Pass force=true to override, or choose one of the matched agents."
-            }), 400
-
+        # soft gate: if agent not matched and not forced, still try but allow fallback
         pain_points_block = "\n".join([f"- {pp}" for pp in pain_points]) if pain_points else "- (no extracted pain points)"
 
-        # Outcome ownership: allow only non-overlapping outcome families per agent (prompt-level)
+        # Outcome ownership (all 8 agents, concise)
         OUTCOME_OWNERSHIP = (
-            "Outcome ownership (no overlap):\n"
-            "- CARE may include: 24/7 inquiry handling, feedback collection, response/resolve time, escalation quality. "
-            "Forbidden: reconciliation, invoicing, AR/AP, insurance form automation, data platform ownership.\n"
-            "- FLOW may include: non-finance process orchestration, SLA adherence, handoff error reduction, batch run timeliness. "
-            "Forbidden: reconciliation, insurance forms, 24/7 inquiry ownership, EMR extraction ownership.\n"
-            "- ASSET may include: monthly reconciliation, insurance form automation, payment tracking/collections, cash-flow visibility/DSO. "
-            "Forbidden: 24/7 inquiry, feedback ops, data platform ownership.\n"
-            "- CODE may include: unified data platform, real-time sync, EMR data extraction/structuring, APIs/webhooks, monitoring. "
-            "Forbidden: business outcomes for finance (reconciliation/forms) or CX (24/7/feedback).\n"
+            "Outcome ownership (no overlap; examples, not exhaustive):\n"
+            "- HYPE Allowed: CTR/engagement, conversion lift from experiments, segmentation precision, creative turnaround, content calendar automation, A/B win-rate, lower CPA/CPM. "
+            "Forbidden: sales pipeline, finance (reconciliation/invoices/AR/AP), 24/7/ticketing, EMR extraction, HR, data platform.\n"
+            "- STRIKE Allowed: lead-qualification accuracy, meeting-book rate, pipeline velocity/stage conversion, follow-up SLA, proposal turnaround, forecast accuracy, win-rate. "
+            "Forbidden: marketing A/B/ROI, finance, 24/7/chatbot/feedback, HR, EMR extraction, data platform.\n"
+            "- CARE Allowed: 24/7 coverage, first-response/resolution time, deflection, CSAT/NPS, escalation quality, multi-channel consistency, KB coverage. "
+            "Forbidden: finance (reconciliation/invoices/claims/AR/AP), marketing/sales pipeline, HR, data platform, EMR extraction.\n"
+            "- VISION Allowed: cross-functional KPI alignment, exec dashboard adoption, decision-latency reduction, churn/LTV insights, competitive-intel to action, scenario planning. "
+            "Forbidden: operational task ownership (support/reconciliation/outreach/claims), data platform ownership, HR staffing, EMR extraction.\n"
+            "- FLOW Allowed: SLA adherence, handoff error reduction, batch-job timeliness, queue-time reduction, workload balancing, appointment-slot utilization (ops orchestration only). "
+            "Forbidden: reconciliation, insurance forms/claims, 24/7 ownership, feedback ops, EMR extraction ownership.\n"
+            "- ASSET Allowed: monthly reconciliation time/accuracy, invoice matching, DSO reduction, claim acceptance rate, payment follow-ups/collections, close-cycle duration, expense-policy compliance. "
+            "Forbidden: 24/7/chatbot/feedback, marketing A/B/ROI, sales pipeline, HR, data platform, EMR extraction.\n"
+            "- TEAM Allowed: time-to-hire, screening throughput/quality, offer-acceptance, onboarding completion/time, training completion, performance review cadence, internal knowledge usage. "
+            "Forbidden: finance ops, 24/7/chatbot/feedback, sales pipeline, marketing A/B, data platform, EMR extraction.\n"
+            "- CODE Allowed: unified data platform availability/latency/sync completeness, API uptime/error rate, EMR data extraction & structuring availability, pipeline freshness, monitoring/alert MTTR, model/BI serving latency. "
+            "Forbidden: finance outcomes (reconciliation/invoices/AR/AP/claims), 24/7/chatbot/feedback ops, marketing/sales/HR outcomes.\n"
         )
 
-        # Prompt: general framing; rely on textual guardrails + outcome ownership
+        # Prompt with "no meta-discussion" + fixed empty case
         query = (
-            f"You are an AI consultant. Write a general (industry-agnostic) solution module for the agent {agent_name}, "
-            f"anchored to the pains below and following the uniqueness (no-overlap) rules and outcome ownership.\n\n"
-            f"OFFICIAL AGENT DEFINITION (reference only, do not copy blindly):\n{agent_definition}\n\n"
+            f"You are an AI consultant. Write an industry-agnostic solution module for {agent_name}, "
+            f"anchored to the pains below and following uniqueness rules and outcome ownership.\n\n"
+            f"OFFICIAL AGENT DEFINITION (reference only):\n{agent_definition}\n\n"
             f"PAIN POINTS (authoritative anchors):\n{pain_points_block}\n\n"
             "HARD RULES:\n"
             "● Use the pains as PRIMARY constraints; only include features/impacts/outcomes that directly map to these pains.\n"
-            "● Do not reference other agents. Use plain text only; no Markdown emphasis.\n"
-            f"● Follow outcome ownership strictly:\n{OUTCOME_OWNERSHIP}\n"
-            "Follow this structure exactly:\n\n"
+            "● Do NOT explain or restate forbidden capabilities. Do NOT mention guardrails/ownership in the output.\n"
+            "● If no valid content remains for this agent given the pains, output exactly:\n"
+            "  No relevant outcomes for this agent given the pains.\n"
+            "  (Do not add any other text.)\n"
+            f"● Outcome ownership:\n{OUTCOME_OWNERSHIP}\n"
+            "STRUCTURE (use plain text, no Markdown emphasis):\n"
             f"{agent_name} – [AGENT TITLE]\n"
-            "This solution [≥120 words; describe what this agent does based on the pains; focus ONLY on relevant workflows].\n\n"
+            "This solution [≥120 words...]\n\n"
             "Key Features:\n"
-            "● Each feature as 'Title: description' (1–2 sentences).\n"
-            "● ...\n"
-            "● ...\n"
-            "● ...\n\n"
+            "● Title: description\n● Title: description\n● Title: description\n\n"
             "Business Impact:\n"
-            "● Realistic, observable impacts aligned to the pains; avoid unverifiable precise numbers.\n"
-            "● ...\n"
-            "● ...\n"
-            "● ...\n\n"
+            "● Impact 1\n● Impact 2\n● Impact 3\n\n"
             "Transformation Summary:\n"
-            "Summarize how this agent transforms operations, anchored to pains (general framing).\n\n"
+            "[One short paragraph]\n\n"
             "Expected Outcomes:\n"
-            "List 4–5 achievable outcomes directly supported by pains/manual and within outcome ownership.\n"
-            "● [Outcome 1]\n"
-            "● [Outcome 2]\n"
-            "● [Outcome 3]\n"
-            "● [Outcome 4]\n"
-            "● [Outcome 5]\n\n"
+            "● Outcome 1\n● Outcome 2\n● Outcome 3\n● Outcome 4\n● Outcome 5\n\n"
             f"Guardrails to follow:\n{GUARDRAILS}\n"
         )
 
         result = rag_chain(index, query)
 
-        # ---------- Post-generation lint to block obvious overlaps ----------
-        violations = lint_outcomes(agent_name, result)
-        if violations:
-            return jsonify({
-                "error": f"Generated text violates ownership for {agent_name}.",
-                "violations": violations,
-                "hint": "Please regenerate with stricter adherence to outcome ownership and guardrails.",
-                "agent_module": result
-            }), 400
-        # -------------------------------------------------------------------
+        # 1) If model says "No relevant outcomes..." -> return as-is (safe, non-overlap)
+        safe_empty = "No relevant outcomes for this agent given the pains."
+        if result.strip() == safe_empty:
+            return jsonify({"agent_module": result, "warnings": ["no-relevant-outcomes"]})
 
-        return jsonify({
-            "agent_module": result
-        })
+        # 2) Remove lines containing forbidden terms; collect what was removed
+        cleaned, removed_lines = remove_forbidden_lines(agent_name, result)
+
+        # 3) Re-check violations on cleaned text; if still present, fallback to safe empty
+        remaining = find_violations(agent_name, cleaned)
+        if remaining:
+            return jsonify({
+                "agent_module": safe_empty,
+                "warnings": ["fallback-empty-due-to-remaining-violations"],
+                "removed_line_count": len(removed_lines)
+            })
+
+        # 4) Return cleaned text (never 400), with optional warnings
+        payload = {"agent_module": cleaned}
+        if removed_lines:
+            payload["warnings"] = ["removed-forbidden-lines"]
+            payload["removed_line_count"] = len(removed_lines)
+        return jsonify(payload)
 
     except Exception as e:
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500
-
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5055))
