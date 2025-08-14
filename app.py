@@ -23,14 +23,35 @@ AGENT_DEFINITIONS = {
     "CODE": "CODE (Technology Intelligence Agent): Provides the technology foundation for AI-driven transformation through intelligent infrastructure management. Core scope includes business tool connection hub, data architecture & ML foundation, cloud infrastructure & cybersecurity, and predictive BI & ML engines."
 }
 
-# === GENERIC, CASE-AGNOSTIC GUARDRAILS FOR AGENT SELECTION ===
+TAXONOMY_TO_AGENT = {
+    "sales": "STRIKE",
+    "marketing": "HYPE",
+    "customer experience": "CARE",
+    "customer_service": "CARE",
+    "cx": "CARE",
+    "strategic": "VISION",
+    "strategy": "VISION",
+    "operations": "FLOW",
+    "operation": "FLOW",
+    "ops": "FLOW",
+    "financial": "ASSET",
+    "finance": "ASSET",
+    "human capital": "TEAM",
+    "hr": "TEAM",
+    "people": "TEAM",
+    "technology": "CODE",
+    "it": "CODE",
+    "engineering": "CODE"
+}
+
 GUARDRAILS = r"""
 Select ONLY from: HYPE, STRIKE, CARE, VISION, FLOW, ASSET, TEAM, CODE.
 
 GENERAL RULES (apply to all):
 - Include an agent ONLY if there is explicit, text-grounded evidence in the retrieved context/transcript/agent manual.
+- Additionally, there must be at least ONE concrete action or Proposed Solution element in the CONTEXT (transcript or agent manual) that shows HOW this agent would be implemented. If missing, mark as excluded with a reason.
 - Do NOT infer or assume missing functions. Absence of evidence = not eligible.
-- For each agent you mark eligible, you must attach 1–3 short verbatim snippets (≤30 words each) that justify eligibility.
+- For each eligible agent, attach 1–3 short verbatim snippets (≤30 words each) that justify eligibility.
 - If no agents qualify, return an empty list for agents.
 
 ELIGIBILITY BY AGENT (INCLUDE IF / EXCLUDE IF):
@@ -69,8 +90,10 @@ ELIGIBILITY BY AGENT (INCLUDE IF / EXCLUDE IF):
 
 OUTPUT: Return STRICT JSON ONLY (no prose). Use this exact schema:
 {
-  "pain_points": ["..."],                  
-  "eligibility": {                         
+  "pain_points": ["..."],
+  "agents": ["HYPE", "STRIKE"],
+  "rationale": {"HYPE": "...", "STRIKE": "..."},
+  "eligibility": {
     "HYPE": {"eligible": false, "reason": "...", "evidence": []},
     "STRIKE": {"eligible": false, "reason": "...", "evidence": []},
     "CARE": {"eligible": false, "reason": "...", "evidence": []},
@@ -79,14 +102,13 @@ OUTPUT: Return STRICT JSON ONLY (no prose). Use this exact schema:
     "ASSET": {"eligible": false, "reason": "...", "evidence": []},
     "TEAM": {"eligible": false, "reason": "...", "evidence": []},
     "CODE": {"eligible": false, "reason": "...", "evidence": []}
-  }
+  },
+  "excluded": [{"agent": "FLOW", "reason": "No concrete Proposed Solution in CONTEXT"}],
+  "coverage_gaps": ["Pain point with no eligible agent"]
 }
 """
 
-
-
 def _safe_json_extract(text: str):
-
     try:
         return json.loads(text)
     except Exception:
@@ -137,7 +159,6 @@ def match_agents():
             "company_info": company_info
         }
 
-
         save_dir = f"/tmp/faiss_{session_id}"
         try:
             index.save_local(save_dir)
@@ -146,18 +167,26 @@ def match_agents():
             pass
 
         query = (
-            "You are an AI strategy consultant. From the transcript + agent manual, extract top concrete business pain points (3–8 items, concise). "
-            "Then pick ONLY the most relevant agents that directly solve those pains. "
-            "Return STRICT JSON with keys: pain_points (array of strings), agents (array of agent codes), rationale (object mapping agent->one-sentence reason). "
-            "DO NOT add prose outside JSON.\n\n"
+            "You are an AI strategy consultant using a RAG system. "
+            "The retrieved CONTEXT contains: client transcripts, the agent manual, and optional company info.\n\n"
+            "TASKS:\n"
+            "1) Extract 3–8 concrete, de-duplicated business pain points (concise, actionable).\n"
+            "2) Select ONLY agents that directly and provably solve those pains using evidence from CONTEXT.\n"
+            "3) Use this taxonomy as a hint for domain→agent mapping (evidence still required):\n"
+            "   - sales -> STRIKE; marketing -> HYPE; customer experience -> CARE; strategic/strategy -> VISION; "
+            "operations/ops -> FLOW; financial/finance -> ASSET; human capital/HR -> TEAM; technology/IT/engineering -> CODE.\n\n"
+            "HARD RULES:\n"
+            "- Agent is eligible only if BOTH:\n"
+            "  (A) CONTEXT shows this agent's scope covers the pain point, and\n"
+            "  (B) CONTEXT contains at least one concrete action/Proposed Solution element for HOW to implement it. "
+            "If (B) is missing, exclude and explain why.\n"
+            "- Provide 1–3 short verbatim snippets (<=30 words) as evidence per eligible agent.\n"
+            "- Do not infer missing capabilities.\n\n"
+            "OUTPUT: STRICT JSON ONLY. No prose outside JSON.\n"
+            "Required keys: pain_points (array), agents (array of codes), rationale (map agent->one sentence).\n"
+            "Also include: eligibility (map), excluded (array of {agent, reason}), coverage_gaps (array).\n\n"
             "Agent reference:\n" + "\n".join([f"- {k}: {v}" for k, v in AGENT_DEFINITIONS.items()]) + "\n\n"
             f"{GUARDRAILS}\n"
-            "JSON schema example:\n"
-            "{\n"
-            "  \"pain_points\": [\"...\", \"...\"],\n"
-            "  \"agents\": [\"TEAM\", \"FLOW\"],\n"
-            "  \"rationale\": {\"TEAM\": \"...\", \"FLOW\": \"...\"}\n"
-            "}\n"
         )
 
         result_text = rag_chain(index, query)
@@ -166,21 +195,33 @@ def match_agents():
         pain_points = []
         matched_agents = []
         rationale = {}
+        eligibility = {}
+        excluded = []
+        coverage_gaps = []
 
         if isinstance(parsed, dict):
             pain_points = parsed.get("pain_points", []) or []
             matched_agents = parsed.get("agents", []) or []
             rationale = parsed.get("rationale", {}) or {}
+            eligibility = parsed.get("eligibility", {}) or {}
+            excluded = parsed.get("excluded", []) or []
+            coverage_gaps = parsed.get("coverage_gaps", []) or []
 
         index_cache[session_id]["pain_points"] = pain_points
         index_cache[session_id]["matched_agents"] = matched_agents
         index_cache[session_id]["rationale"] = rationale
+        index_cache[session_id]["eligibility"] = eligibility
+        index_cache[session_id]["excluded"] = excluded
+        index_cache[session_id]["coverage_gaps"] = coverage_gaps
 
         return jsonify({
             "session_id": session_id,
             "pain_points": pain_points,
             "matched_agents": matched_agents,
             "rationale": rationale,
+            "eligibility": eligibility,
+            "excluded": excluded,
+            "coverage_gaps": coverage_gaps,
             "raw": result_text
         })
 
@@ -212,7 +253,10 @@ def generate_agent_module():
                         "save_dir": save_dir,
                         "pain_points": [],
                         "matched_agents": [],
-                        "rationale": {}
+                        "rationale": {},
+                        "eligibility": {},
+                        "excluded": [],
+                        "coverage_gaps": []
                     }
                     cached = index_cache[session_id]
                 except Exception:
@@ -232,12 +276,20 @@ def generate_agent_module():
 
         merged_company_info = company_info.strip() or company_info_cached
 
-        if matched_agents and (agent_name not in matched_agents) and not force:
+        eligibility = cached.get("eligibility", {})
+        is_explicitly_excluded = False
+        if eligibility and agent_name in eligibility:
+            el = eligibility.get(agent_name) or {}
+            if not el.get("eligible") and not force:
+                is_explicitly_excluded = True
+
+        if (is_explicitly_excluded or (matched_agents and (agent_name not in matched_agents))) and not force:
             return jsonify({
-                "error": f"Agent '{agent_name}' is not relevant to extracted pain points.",
+                "error": f"Agent '{agent_name}' is not eligible/relevant to extracted pain points.",
                 "matched_agents": matched_agents,
+                "eligibility": eligibility.get(agent_name, {}),
                 "pain_points": pain_points,
-                "hint": "Pass force=true to override, or choose one of the matched agents."
+                "hint": "Pass force=true to override, or choose one of the matched eligible agents."
             }), 400
 
         pain_points_block = "\n".join([f"- {pp}" for pp in pain_points]) if pain_points else "- (no extracted pain points)"
@@ -292,4 +344,3 @@ if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5055))
     print(f"Starting server on port {port} ...")
     app.run(host="0.0.0.0", port=port)
-
