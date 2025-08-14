@@ -4,7 +4,6 @@ from pathlib import Path
 import os
 import traceback
 import json
-import re
 
 app = Flask(__name__)
 UPLOAD_FOLDER = "uploads"
@@ -14,77 +13,91 @@ index_cache = {}
 
 # === OFFICIAL, CASE-AGNOSTIC DEFINITIONS (from 3echo 360 Circuit) ===
 AGENT_DEFINITIONS = {
-    "HYPE": "HYPE (Marketing Intelligence Agent): Turns marketing into a revenue engine via automation and measurement. Core scope: content ops, cross-platform orchestration, audience segmentation, A/B testing & optimization.",
-    "STRIKE": "STRIKE (Sales Acceleration Agent): Scales relationship-led selling via pipeline intelligence and outreach automation. Core scope: lead scoring, stage progression, outreach/scheduling, proposals.",
-    "CARE": "CARE (Customer Experience Agent): Delivers 24/7 omnichannel support with human escalation. Core scope: FAQ/knowledge base, chatbot/voice, ticket routing, onboarding & feedback.",
-    "VISION": "VISION (Strategic Intelligence Agent): Provides exec-level insight for decisions. Core scope: cross-functional KPIs, customer/LTV & churn, competitive/market intel, strategy dashboards.",
-    "FLOW": "FLOW (Operations Excellence Agent): Orchestrates back-office processes. Core scope: process automation, fulfillment/SLAs, quality/compliance monitoring, vendor coordination.",
-    "ASSET": "ASSET (Financial Intelligence Agent): Automates finance ops and planning. Core scope: AR/AP, invoice processing & matching, reconciliation, expense control, cash-flow forecasting.",
-    "TEAM": "TEAM (Human Capital Agent): Optimizes talent lifecycle. Core scope: recruiting/screening, onboarding, performance & development, internal knowledge.",
-    "CODE": "CODE (Technology Intelligence Agent): Provides integration & data platform. Core scope: APIs/connectors, data pipelines & governance, ML/BI foundation, cloud/security."
+    "HYPE": "HYPE (Marketing Intelligence Agent): Transforms marketing into a revenue engine via intelligent automation and data-driven campaign optimization. Core scope includes AI social content creation, cross-platform social management, A/B testing and optimization, and personalized email campaign automation.",
+    "STRIKE": "STRIKE (Sales Acceleration Agent): Transforms sales through intelligent pipeline management and automated relationship building. Core scope includes lead scoring, automated pipeline progression, cold outreach (research/persona/outreach/follow-ups), meeting scheduling and follow-up, and proposal/quotation automation.",
+    "CARE": "CARE (Customer Experience Agent): Delivers omnichannel customer support that blends AI efficiency with human escalation. Core scope includes AI voice receptionist, omnichannel chatbot/ticket routing with sentiment, customer onboarding automation, and feedback/experience analytics.",
+    "VISION": "VISION (Strategic Intelligence Agent): Provides executive-level strategic intelligence turning data into actionable insights and competitive advantage. Core scope includes business health diagnostics, cross-functional performance dashboards, competitive response coordination, and customer intelligence/LTV optimization.",
+    "FLOW": "FLOW (Operations Excellence Agent): Optimizes operational efficiency via intelligent process automation and supply chain intelligence. Core scope includes inventory management/forecasting, supplier/vendor management, quality/compliance monitoring, and order fulfillment & delivery optimization.",
+    "ASSET": "ASSET (Financial Intelligence Agent): Transforms financial management via intelligent automation and predictive planning. Core scope includes intelligent accounts receivable, automated invoice processing and matching, expense management and approvals, and cash-flow management and forecasting.",
+    "TEAM": "TEAM (Human Capital Agent): Optimizes human potential with intelligent recruitment, development, and performance management. Core scope includes automated onboarding, recruitment & screening, performance monitoring & development, and internal knowledge management.",
+    "CODE": "CODE (Technology Intelligence Agent): Provides the technology foundation for AI-driven transformation through intelligent infrastructure management. Core scope includes business tool connection hub, data architecture & ML foundation, cloud infrastructure & cybersecurity, and predictive BI & ML engines."
 }
 
-# === Text-only GUARDRAILS (prompt-enforced) ===
 GUARDRAILS = r"""
 Select ONLY from: HYPE, STRIKE, CARE, VISION, FLOW, ASSET, TEAM, CODE.
 
-GENERAL RULES:
-- Industry-agnostic. Use domain-neutral wording (no client/vendor names).
-- Evidence-gated: Include an agent ONLY if explicitly supported by retrieved text.
+GENERAL RULES (apply to all):
+- Include an agent ONLY if there is explicit, text-grounded evidence in the retrieved context/transcript/agent manual.
 - Do NOT infer or assume missing functions. Absence of evidence = not eligible.
-- For each eligible agent, attach 1–3 short verbatim snippets (≤30 words each) as evidence.
+- For each agent you mark eligible, you must attach 1–3 short verbatim snippets (≤30 words each) that justify eligibility.
 - If no agents qualify, return an empty list for agents.
-- Keep specific processes distinct (e.g., 'monthly timesheets/payroll' vs. '24/7 client support/FAQ').
+- Do NOT merge specific operational processes into generic buckets. If 'monthly timesheets/payroll' or '24/7 client support/FAQ' appears, keep them as distinct pain points.
 
-UNIQUENESS / NO-OVERLAP:
-- A capability may be assigned to ONE owner agent only (see owners below).
-- Do NOT list the same capability under multiple agents, even if context suggests overlap.
-- If ambiguous, choose the single best-fit agent per capability and state the reason concisely.
-
-OFFICIAL CAPABILITY OWNERS (reference, no cross-listing):
-- Finance → ASSET: reconciliation, invoice matching, AR/AP, expense control, cash-flow forecasting, payroll/timesheets/attendance.
-- CX → CARE: 24/7 support, FAQ/knowledge base, chatbot/voice, ticket routing, escalation-to-human.
-- Marketing → HYPE: content automation, cross-platform orchestration, audience segmentation, A/B testing & optimization.
-- Sales → STRIKE: lead scoring/qualification, pipeline stage progression, outreach/scheduling, proposals/quotations.
-- Strategy → VISION: exec KPIs, strategic decision support, competitive/market intelligence, LTV/churn.
-- Operations → FLOW: process orchestration, vendor/supplier coordination, fulfillment/SLAs, quality/compliance monitoring.
-- HR → TEAM: recruiting/sourcing/screening, onboarding, performance/development, internal knowledge.
-- Tech/Data → CODE: APIs/integration, data pipelines/sync, model ops, BI/ML platform, cloud/security/monitoring.
-
-PAIN-POINT EXTRACTION:
-- Extract 3–8 concise, non-duplicative pain points.
-- Each pain point MUST include 1–2 short quotes (≤30 words) from retrieved text.
-- Use neutral wording (no client/vendor names).
+PAIN-POINT EXTRACTION (case-agnostic, evidence-gated):
+- Extract 3–8 concise, distinct pain points.
+- Each pain point MUST be supported by 1–2 short quotes (≤30 words) from the retrieved text.
+- Use domain-neutral wording (no client/vendor names).
 
 ELIGIBILITY BY AGENT (INCLUDE IF / EXCLUDE IF):
-- HYPE: INCLUDE IF social/content/email automation, ads, A/B testing, segmentation, marketing ROI optimization. EXCLUDE IF no marketing activity.
-- STRIKE: INCLUDE IF pipeline/stage, lead scoring/qualification, cold outreach, meeting scheduling, proposals. EXCLUDE IF no sales.
-- CARE: INCLUDE IF 24/7 or after-hours, FAQ/KB/help center, chatbot/voice, ticket routing, escalation, compliance/policy, onboarding, multi-channel (web/WhatsApp/email/call). EXCLUDE IF no CX/KB/escalation.
-- VISION: INCLUDE IF cross-functional KPIs, competitive/market intel, decision support, LTV/churn. EXCLUDE IF purely operational.
-- FLOW: INCLUDE IF process orchestration, vendor/supplier mgmt, quality/compliance, order/fulfillment, back-office automation. EXCLUDE IF only front-office.
-- ASSET: INCLUDE IF AR/AP, invoicing, invoice matching, reconciliation, expense control, cash-flow forecasting; OR payroll/timesheet/attendance. EXCLUDE IF no finance/payroll/accounting.
-- TEAM: INCLUDE IF recruiting/sourcing/screening, onboarding, performance tracking/development, internal knowledge base, skills matching. EXCLUDE IF no HR/talent.
-- CODE: INCLUDE IF integration/API, data pipelines/sync, model ops, cloud/security/monitoring, BI/ML platform. EXCLUDE IF no integration/infrastructure.
 
-OUTPUT (STRICT JSON ONLY):
+- HYPE (Marketing):
+  INCLUDE IF: Mentions social media/content/email automation, ads, A/B testing, audience segmentation, marketing ROI optimization.
+  EXCLUDE IF: No marketing-related activities are mentioned.
+
+- STRIKE (Sales):
+  INCLUDE IF: Mentions sales pipeline/stage management, lead scoring/qualification, cold outreach, meeting scheduling, proposals/quotations.
+  EXCLUDE IF: No sales activity is mentioned.
+
+- CARE (Customer Experience/Support):
+  INCLUDE IF: Mentions 24/7 or round-the-clock client support; FAQ/knowledge base/help center; chatbot/voice receptionist; ticket routing; escalation-to-human; compliance/regulation/policy guidance; client onboarding support; multi-channel (web/WhatsApp/email/call) service.
+  STRONG SIGNALS: "FAQ", "knowledge base", "helpdesk", "ticket", "escalation", "SLA", "24/7", "after-hours", "compliance", "regulations", "policy".
+  EXCLUDE IF: No customer support/experience or knowledge-base/escalation workflows are present.
+
+- VISION (Strategy/Executive Intelligence):
+  INCLUDE IF: Mentions cross-functional KPI analysis, market/competitive intelligence, strategic decision support, LTV/churn analysis.
+  EXCLUDE IF: Purely operational with no strategic or executive insights.
+
+- FLOW (Operations/Back-office Automation):
+  INCLUDE IF: Mentions process orchestration, vendor/supplier management, quality/compliance monitoring, order/fulfillment, back-office workflow automation.
+  EXCLUDE IF: Only front-office activities (marketing/sales/support) are present.
+
+- ASSET (Finance):
+  INCLUDE IF: Mentions AR/AP, invoicing, invoice matching, expense control, cash-flow forecasting, financial reconciliation; OR payroll/timesheet/attendance processing including clock-in/out extraction, overtime, daily-rate/penalty calculations, and benefits/tax/social-security contributions.
+  STRONG SIGNALS: "timesheet", "attendance", "clock-in", "clock-out", "payroll", "overtime", "daily rate", "penalty", "reconciliation", "AR", "AP", "invoice", "cash flow", "tax", "social security".
+  EXCLUDE IF: No finance, payroll, or accounting operations are mentioned.
+  
+- TEAM (Human Capital/Talent):
+  INCLUDE IF: Mentions recruiting/sourcing/screening, onboarding, performance tracking/development, internal knowledge base, skills matching.
+  EXCLUDE IF: No HR/talent themes are present.
+
+- CODE (Tech Foundation/Integration):
+  INCLUDE IF: Mentions system integration/API, data pipelines/sync, model operations, cloud/security/monitoring, BI/ML platforming.
+  EXCLUDE IF: No integration/infrastructure needs are present.
+
+OUTPUT: Return STRICT JSON ONLY (no prose). Use this exact schema:
 {
-  "pain_points": ["..."],
-  "eligibility": {
+  "pain_points": ["..."],                  
+  "eligibility": {                         
     "HYPE": {"eligible": false, "reason": "...", "evidence": []},
-    "STRIKE": {"eligible": true,  "reason": "...", "evidence": []},
+    "STRIKE": {"eligible": true, "reason": "...", "evidence": []},
     "CARE": {"eligible": false, "reason": "...", "evidence": []},
     "VISION": {"eligible": false, "reason": "...", "evidence": []},
-    "FLOW": {"eligible": true,  "reason": "...", "evidence": []},
+    "FLOW": {"eligible": true, "reason": "...", "evidence": []},
     "ASSET": {"eligible": false, "reason": "...", "evidence": []},
-    "TEAM": {"eligible": true,  "reason": "...", "evidence": []},
+    "TEAM": {"eligible": true, "reason": "...", "evidence": []},
     "CODE": {"eligible": false, "reason": "...", "evidence": []}
   },
-  "agents": ["TEAM","FLOW","STRIKE"],
-  "rationale": {"TEAM": "...","FLOW": "...","STRIKE": "..."}
+  "agents": ["TEAM","FLOW","STRIKE"],      
+  "rationale": {                           
+    "TEAM": "...",
+    "FLOW": "...",
+    "STRIKE": "..."
+  }
 }
 """
 
 def _safe_json_extract(text: str):
+
     try:
         return json.loads(text)
     except Exception:
@@ -93,52 +106,12 @@ def _safe_json_extract(text: str):
         start = text.find("{")
         end = text.rfind("}")
         if start != -1 and end != -1 and end > start:
-            return json.loads(text[start:end+1])
+            candidate = text[start:end+1]
+            return json.loads(candidate)
     except Exception:
         return None
     return None
 
-# --- Minimal ownership: forbid obvious cross-agent outcomes (lowercase match) ---
-FORBIDDEN_BY_AGENT = {
-    "HYPE":  ["reconciliation","invoice","insurance form","claims","ar/ap","cash flow","24/7","chatbot","ticket","knowledge base","emr extraction","data platform"],
-    "STRIKE":["reconciliation","invoice","insurance form","claims","ar/ap","cash flow","24/7","chatbot","feedback","knowledge base","emr extraction","data platform"],
-    "CARE":  ["reconciliation","invoice","insurance form","claims","ar/ap","cash flow","pipeline","proposal","ab testing","emr extraction","data platform"],
-    "VISION":["reconciliation","invoice","insurance form","claims","ar/ap","24/7","chatbot","feedback","onboarding (hr)","emr extraction","data platform ownership"],
-    "FLOW":  ["reconciliation","invoice","insurance form","claims","24/7","chatbot","feedback","emr extraction"],
-    "ASSET": ["24/7","after-hours","chatbot","feedback","knowledge base","pipeline","ab testing","data platform","emr extraction","unified data platform"],
-    "TEAM":  ["reconciliation","invoice","insurance form","claims","ar/ap","24/7","chatbot","ab testing","pipeline","data platform","emr extraction"],
-    "CODE":  ["reconciliation","invoice","insurance form","claims","ar/ap","24/7","chatbot","feedback","collections"]
-}
-
-def find_violations(agent: str, text: str):
-    t = (text or "").lower()
-    return sorted({term for term in FORBIDDEN_BY_AGENT.get(agent, []) if term in t})
-
-def remove_forbidden_lines(agent: str, text: str):
-    """Delete any line containing a forbidden term; keep structure simple."""
-    forb = [f.lower() for f in FORBIDDEN_BY_AGENT.get(agent, [])]
-    lines = (text or "").splitlines()
-    kept, removed = [], []
-    for ln in lines:
-        ll = ln.lower()
-        if any(term in ll for term in forb):
-            removed.append(ln)
-        else:
-            kept.append(ln)
-    return "\n".join(kept).strip(), removed
-
-def strip_meta(text: str):
-    """Remove code fences and SOURCES lines to keep plain text only."""
-    t = text or ""
-    t = re.sub(r"```.*?```", "", t, flags=re.S)  # remove fenced blocks
-    lines = []
-    for ln in t.splitlines():
-        if ln.strip().lower().startswith("sources:"):
-            continue
-        if ln.strip().startswith("```"):
-            continue
-        lines.append(ln)
-    return "\n".join(lines).strip()
 
 @app.route("/match_agents", methods=["POST"])
 def match_agents():
@@ -151,22 +124,30 @@ def match_agents():
         transcript_file.save(transcript_path)
         agent_file.save(agent_path)
 
-        company_info = request.form.get("company_info", "") or ""
+        company_info = request.form.get("company_info", None) or ""
 
         sections = load_all_documents([transcript_path, agent_path])
+
         if company_info:
-            sections.append({"title":"Company Info","text":company_info,"source":"web_summary","type":"company"})
+            sections.append({
+                "title": "Company Info",
+                "text": company_info,
+                "source": "web_summary",
+                "type": "company"
+            })
 
         chunks = split_into_chunks(sections, chunk_size=500, chunk_overlap=50)
         index = build_faiss_index(chunks)
 
         session_id = request.form.get("session_id", "default")
+
         index_cache[session_id] = {
             "index": index,
             "transcript_path": str(transcript_path),
             "agent_path": str(agent_path),
             "company_info": company_info
         }
+
 
         save_dir = f"/tmp/faiss_{session_id}"
         try:
@@ -191,17 +172,20 @@ def match_agents():
         )
 
         result_text = rag_chain(index, query)
-        parsed = _safe_json_extract(result_text) or {}
+        parsed = _safe_json_extract(result_text)
 
-        pain_points = parsed.get("pain_points", []) or []
-        matched_agents = parsed.get("agents", []) or []
-        rationale = parsed.get("rationale", {}) or {}
+        pain_points = []
+        matched_agents = []
+        rationale = {}
 
-        index_cache[session_id].update({
-            "pain_points": pain_points,
-            "matched_agents": matched_agents,
-            "rationale": rationale
-        })
+        if isinstance(parsed, dict):
+            pain_points = parsed.get("pain_points", []) or []
+            matched_agents = parsed.get("agents", []) or []
+            rationale = parsed.get("rationale", {}) or {}
+
+        index_cache[session_id]["pain_points"] = pain_points
+        index_cache[session_id]["matched_agents"] = matched_agents
+        index_cache[session_id]["rationale"] = rationale
 
         return jsonify({
             "session_id": session_id,
@@ -215,6 +199,7 @@ def match_agents():
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500
 
+
 @app.route("/generate_agent_module", methods=["POST"])
 def generate_agent_module():
     try:
@@ -224,23 +209,29 @@ def generate_agent_module():
         force = bool(request.json.get("force", False))
 
         cached = index_cache.get(session_id)
+
         if not cached:
             save_dir = f"/tmp/faiss_{session_id}"
             if os.path.isdir(save_dir):
-                index_cache[session_id] = {
-                    "index": load_faiss_index(save_dir),
-                    "transcript_path": "",
-                    "agent_path": "",
-                    "company_info": company_info,
-                    "save_dir": save_dir,
-                    "pain_points": [],
-                    "matched_agents": [],
-                    "rationale": {}
-                }
-                cached = index_cache[session_id]
+                try:
+                    index = load_faiss_index(save_dir)
+                    index_cache[session_id] = {
+                        "index": index,
+                        "transcript_path": "",
+                        "agent_path": "",
+                        "company_info": company_info,
+                        "save_dir": save_dir,
+                        "pain_points": [],
+                        "matched_agents": [],
+                        "rationale": {}
+                    }
+                    cached = index_cache[session_id]
+                except Exception:
+                    pass
 
         if not cached:
             return jsonify({"error": "No index found for session."}), 400
+
         if agent_name not in AGENT_DEFINITIONS:
             return jsonify({"error": f"Invalid agent name: {agent_name}"}), 400
 
@@ -248,82 +239,73 @@ def generate_agent_module():
         agent_definition = AGENT_DEFINITIONS[agent_name]
         pain_points = request.json.get("pain_points") or cached.get("pain_points", [])
         matched_agents = cached.get("matched_agents", [])
-        merged_company_info = (company_info or cached.get("company_info", "")).strip()
+        company_info_cached = cached.get("company_info", "")
+
+        merged_company_info = company_info.strip() or company_info_cached
+
+        if matched_agents and (agent_name not in matched_agents) and not force:
+            return jsonify({
+                "error": f"Agent '{agent_name}' is not relevant to extracted pain points.",
+                "matched_agents": matched_agents,
+                "pain_points": pain_points,
+                "hint": "Pass force=true to override, or choose one of the matched agents."
+            }), 400
 
         pain_points_block = "\n".join([f"- {pp}" for pp in pain_points]) if pain_points else "- (no extracted pain points)"
 
-        OUTCOME_OWNERSHIP = (
-            "Outcome ownership (no overlap; examples, not exhaustive):\n"
-            "- HYPE Allowed: CTR/engagement, conversion lift from experiments, segmentation precision, creative turnaround, content calendar automation, A/B win-rate, lower CPA/CPM. "
-            "Forbidden: sales pipeline, finance (reconciliation/invoices/AR/AP), 24/7/ticketing, EMR extraction, HR, data platform.\n"
-            "- STRIKE Allowed: lead-qualification accuracy, meeting-book rate, pipeline velocity/stage conversion, follow-up SLA, proposal turnaround, forecast accuracy, win-rate. "
-            "Forbidden: marketing A/B/ROI, finance, 24/7/chatbot/feedback, HR, EMR extraction, data platform.\n"
-            "- CARE Allowed: 24/7 coverage, first-response/resolution time, deflection, CSAT/NPS, escalation quality, multi-channel consistency, KB coverage. "
-            "Forbidden: finance (reconciliation/invoices/claims/AR/AP), marketing/sales pipeline, HR, data platform, EMR extraction.\n"
-            "- VISION Allowed: cross-functional KPI alignment, exec dashboard adoption, decision-latency reduction, churn/LTV insights, competitive-intel to action, scenario planning. "
-            "Forbidden: operational task ownership (support/reconciliation/outreach/claims), data platform ownership, HR staffing, EMR extraction.\n"
-            "- FLOW Allowed: SLA adherence, handoff error reduction, batch-job timeliness, queue-time reduction, workload balancing, appointment-slot utilization (ops orchestration only). "
-            "Forbidden: reconciliation, insurance forms/claims, 24/7 ownership, feedback ops, EMR extraction ownership.\n"
-            "- ASSET Allowed: monthly reconciliation time/accuracy, invoice matching, DSO reduction, claim acceptance rate, payment follow-ups/collections, close-cycle duration, expense-policy compliance. "
-            "Forbidden: 24/7/chatbot/feedback, marketing A/B/ROI, sales pipeline, HR, data platform, EMR extraction.\n"
-            "- TEAM Allowed: time-to-hire, screening throughput/quality, offer-acceptance, onboarding completion/time, training completion, performance review cadence, internal knowledge usage. "
-            "Forbidden: finance ops, 24/7/chatbot/feedback, sales pipeline, marketing A/B, data platform, EMR extraction.\n"
-            "- CODE Allowed: unified data platform availability/latency/sync completeness, API uptime/error rate, EMR data extraction & structuring availability, pipeline freshness, monitoring/alert MTTR, model/BI serving latency. "
-            "Forbidden: finance outcomes (reconciliation/invoices/AR/AP/claims), 24/7/chatbot/feedback ops, marketing/sales/HR outcomes.\n"
-        )
-
         query = (
-            f"You are an AI consultant. Write an industry-agnostic solution module for {agent_name}, "
-            f"anchored to the pains below and following uniqueness rules and outcome ownership.\n\n"
-            f"OFFICIAL AGENT DEFINITION (reference only):\n{agent_definition}\n\n"
-            f"PAIN POINTS (authoritative anchors):\n{pain_points_block}\n\n"
-            "HARD RULES:\n"
-            "● Return PLAIN TEXT only. Do NOT output JSON, code fences, or a 'SOURCES:' line.\n"
-            "● Use the pains as PRIMARY constraints; only include features/impacts/outcomes that directly map to these pains.\n"
-            "● Do NOT explain or restate forbidden capabilities. Do NOT mention guardrails/ownership in the output.\n"
-            "● If no valid content remains for this agent given the pains, output exactly:\n"
-            "  No relevant outcomes for this agent given the pains.\n"
-            "  (Do not add any other text.)\n"
-            f"● Outcome ownership:\n{OUTCOME_OWNERSHIP}\n"
-            "STRUCTURE (use plain text, no Markdown emphasis):\n"
-            f"{agent_name} – [AGENT TITLE]\n"
-            "This solution [≥120 words...]\n\n"
-            "Key Features:\n"
-            "● Title: description\n● Title: description\n● Title: description\n\n"
-            "Business Impact:\n"
-            "● Impact 1\n● Impact 2\n● Impact 3\n\n"
-            "Transformation Summary:\n"
-            "[One short paragraph]\n\n"
-            "Expected Outcomes:\n"
-            "● Outcome 1\n● Outcome 2\n● Outcome 3\n● Outcome 4\n● Outcome 5\n\n"
-            f"Guardrails to follow:\n{GUARDRAILS}\n"
+        f"You are an AI consultant. Write a full structured solution module for the agent {agent_name}, "
+        f"tailored specifically to the client's industry and the pain points below.\n\n"
+        f"OFFICIAL AGENT DEFINITION (reference only, do not copy blindly):\n{agent_definition}\n\n"
+        f"CLIENT PAIN POINTS (authoritative, must anchor your content):\n{pain_points_block}\n\n"
+        "HARD RULES:\n"
+        "● Use the pain points and transcript context as PRIMARY constraints.\n"
+        "● Include ONLY features/impacts/outcomes that directly map to these pains and the client's industry context.\n"
+        "● If a feature is not supported by the agent manual or not relevant to the pains, exclude it.\n"
+        "● Do NOT mention or reference any other agents.\n"
+        "● Use plain text only; do not use bold (**), italics (*), or other Markdown formatting.\n\n"
+        "Company description (if any):\n"
+        f"{merged_company_info}\n\n"
+        "Follow this exact structure:\n\n"
+        f"{agent_name} – [AGENT TITLE]\n"
+        "This solution [≥120 words; describe what this agent does for the business based on the pains above; focus ONLY on relevant workflows].\n\n"
+        "Key Features:\n"
+        "● Write each feature as 'Title: description' with plain text only, no Markdown formatting.\n"
+        "● Pick features that match the pains; each description should be 1–2 sentences.\n"
+        "● ...\n"
+        "● ...\n"
+        "● ...\n\n"
+        "Business Impact:\n"
+        "● Summarize realistic impacts based on the client's industry and pains.\n"
+        "● Use qualitative descriptions or achievable improvement ranges instead of precise, unverifiable numbers.\n"
+        "● Focus on how the solution addresses the pains and delivers measurable or observable value.\n"
+        "● ...\n"
+        "● ...\n"
+        "● ...\n\n"
+        "Transformation Summary:\n"
+        "Summarize how this agent transforms the client’s operations, anchored to the pains and the industry context.\n\n"
+        "Expected Outcomes:\n"
+        "List 4–5 realistic outcomes directly supported by the pains/manual.\n"
+        "● Use achievable, qualitative statements that reflect tangible benefits (e.g., improved efficiency, reduced errors, enhanced customer satisfaction).\n"
+        "● Include ranges or directional terms ('significant improvement', 'moderate increase') only when appropriate.\n"
+        "● [Outcome 2]\n"
+        "● [Outcome 3]\n"
+        "● [Outcome 4]\n"
+        "● [Outcome 5]\n"
         )
 
         result = rag_chain(index, query)
-
-        # --- sanitize meta noise (code fences / SOURCES) ---
-        result = strip_meta(result)
-
-        # --- Silent handling for "no relevant outcomes" ---
-        safe_empty = "No relevant outcomes for this agent given the pains."
-        if result.strip() == safe_empty:
-            return jsonify({"agent_module": ""})
-
-        # --- remove lines containing forbidden terms ---
-        cleaned, _removed_lines = remove_forbidden_lines(agent_name, result)
-
-        # --- final guard: still violations? return empty string silently ---
-        if find_violations(agent_name, cleaned):
-            return jsonify({"agent_module": ""})
-
-        # success, only return agent_module
-        return jsonify({"agent_module": cleaned})
+        return jsonify({
+            "agent_module": result
+        })
 
     except Exception as e:
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500
 
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5055))
     print(f"Starting server on port {port} ...")
     app.run(host="0.0.0.0", port=port)
+
