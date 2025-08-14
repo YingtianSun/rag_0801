@@ -23,6 +23,7 @@ AGENT_DEFINITIONS = {
     "CODE": "CODE (Technology Intelligence Agent): Provides the technology foundation for AI-driven transformation through intelligent infrastructure management. Core scope includes business tool connection hub, data architecture & ML foundation, cloud infrastructure & cybersecurity, and predictive BI & ML engines."
 }
 
+# === GENERIC, CASE-AGNOSTIC GUARDRAILS FOR AGENT SELECTION ===
 GUARDRAILS = r"""
 Select ONLY from: HYPE, STRIKE, CARE, VISION, FLOW, ASSET, TEAM, CODE.
 
@@ -31,12 +32,6 @@ GENERAL RULES (apply to all):
 - Do NOT infer or assume missing functions. Absence of evidence = not eligible.
 - For each agent you mark eligible, you must attach 1–3 short verbatim snippets (≤30 words each) that justify eligibility.
 - If no agents qualify, return an empty list for agents.
-- Do NOT merge specific operational processes into generic buckets. If 'monthly timesheets/payroll' or '24/7 client support/FAQ' appears, keep them as distinct pain points.
-
-PAIN-POINT EXTRACTION (case-agnostic, evidence-gated):
-- Extract 3–8 concise, distinct pain points.
-- Each pain point MUST be supported by 1–2 short quotes (≤30 words) from the retrieved text.
-- Use domain-neutral wording (no client/vendor names).
 
 ELIGIBILITY BY AGENT (INCLUDE IF / EXCLUDE IF):
 
@@ -49,29 +44,27 @@ ELIGIBILITY BY AGENT (INCLUDE IF / EXCLUDE IF):
   EXCLUDE IF: No sales activity is mentioned.
 
 - CARE (Customer Experience/Support):
-  INCLUDE IF: Mentions 24/7 or round-the-clock client support; FAQ/knowledge base/help center; chatbot/voice receptionist; ticket routing; escalation-to-human; compliance/regulation/policy guidance; client onboarding support; multi-channel (web/WhatsApp/email/call) service.
-  STRONG SIGNALS: "FAQ", "knowledge base", "helpdesk", "ticket", "escalation", "SLA", "24/7", "after-hours", "compliance", "regulations", "policy".
-  EXCLUDE IF: No customer support/experience or knowledge-base/escalation workflows are present.
+  INCLUDE IF: Mentions customer support (voice/chat), helpdesk, ticket routing, customer onboarding, feedback collection, retention analytics.
+  EXCLUDE IF: No customer support/experience workflows are present.
 
 - VISION (Strategy/Executive Intelligence):
   INCLUDE IF: Mentions cross-functional KPI analysis, market/competitive intelligence, strategic decision support, LTV/churn analysis.
   EXCLUDE IF: Purely operational with no strategic or executive insights.
 
 - FLOW (Operations/Back-office Automation):
-  INCLUDE IF: Mentions process orchestration, vendor/supplier management, quality/compliance monitoring, order/fulfillment, back-office workflow automation.
+  INCLUDE IF: Mentions supply chain, vendor management, quality monitoring, order fulfillment, back-office process orchestration.
   EXCLUDE IF: Only front-office activities (marketing/sales/support) are present.
 
 - ASSET (Finance):
-  INCLUDE IF: Mentions AR/AP, invoicing, invoice matching, expense control, cash-flow forecasting, financial reconciliation; OR payroll/timesheet/attendance processing including clock-in/out extraction, overtime, daily-rate/penalty calculations, and benefits/tax/social-security contributions.
-  STRONG SIGNALS: "timesheet", "attendance", "clock-in", "clock-out", "payroll", "overtime", "daily rate", "penalty", "reconciliation", "AR", "AP", "invoice", "cash flow", "tax", "social security".
-  EXCLUDE IF: No finance, payroll, or accounting operations are mentioned.
+  INCLUDE IF: Mentions AR/AP, invoicing, invoice matching, expense control, cash-flow forecasting.
+  EXCLUDE IF: No finance operations are mentioned.
   
 - TEAM (Human Capital/Talent):
-  INCLUDE IF: Mentions recruiting/sourcing/screening, onboarding, performance tracking/development, internal knowledge base, skills matching.
+  INCLUDE IF: Mentions recruiting/sourcing/screening, onboarding, performance tracking, internal knowledge base.
   EXCLUDE IF: No HR/talent themes are present.
 
 - CODE (Tech Foundation/Integration):
-  INCLUDE IF: Mentions system integration/API, data pipelines/sync, model operations, cloud/security/monitoring, BI/ML platforming.
+  INCLUDE IF: Mentions system integration/API, data pipelines, model operations, cloud/security/monitoring.
   EXCLUDE IF: No integration/infrastructure needs are present.
 
 OUTPUT: Return STRICT JSON ONLY (no prose). Use this exact schema:
@@ -79,22 +72,18 @@ OUTPUT: Return STRICT JSON ONLY (no prose). Use this exact schema:
   "pain_points": ["..."],                  
   "eligibility": {                         
     "HYPE": {"eligible": false, "reason": "...", "evidence": []},
-    "STRIKE": {"eligible": true, "reason": "...", "evidence": []},
+    "STRIKE": {"eligible": false, "reason": "...", "evidence": []},
     "CARE": {"eligible": false, "reason": "...", "evidence": []},
     "VISION": {"eligible": false, "reason": "...", "evidence": []},
-    "FLOW": {"eligible": true, "reason": "...", "evidence": []},
+    "FLOW": {"eligible": false, "reason": "...", "evidence": []},
     "ASSET": {"eligible": false, "reason": "...", "evidence": []},
-    "TEAM": {"eligible": true, "reason": "...", "evidence": []},
+    "TEAM": {"eligible": false, "reason": "...", "evidence": []},
     "CODE": {"eligible": false, "reason": "...", "evidence": []}
-  },
-  "agents": ["TEAM","FLOW","STRIKE"],      
-  "rationale": {                           
-    "TEAM": "...",
-    "FLOW": "...",
-    "STRIKE": "..."
   }
 }
 """
+
+
 
 def _safe_json_extract(text: str):
 
@@ -136,7 +125,7 @@ def match_agents():
                 "type": "company"
             })
 
-        chunks = split_into_chunks(sections, chunk_size=500, chunk_overlap=50)
+        chunks = split_into_chunks(sections, chunk_size=300, chunk_overlap=50)
         index = build_faiss_index(chunks)
 
         session_id = request.form.get("session_id", "default")
@@ -254,44 +243,39 @@ def generate_agent_module():
         pain_points_block = "\n".join([f"- {pp}" for pp in pain_points]) if pain_points else "- (no extracted pain points)"
 
         query = (
-        f"You are an AI consultant. Write a full structured solution module for the agent {agent_name}, "
-        f"tailored specifically to the client's industry and the pain points below.\n\n"
-        f"OFFICIAL AGENT DEFINITION (reference only, do not copy blindly):\n{agent_definition}\n\n"
-        f"CLIENT PAIN POINTS (authoritative, must anchor your content):\n{pain_points_block}\n\n"
-        "HARD RULES:\n"
-        "● Use the pain points and transcript context as PRIMARY constraints.\n"
-        "● Include ONLY features/impacts/outcomes that directly map to these pains and the client's industry context.\n"
-        "● If a feature is not supported by the agent manual or not relevant to the pains, exclude it.\n"
-        "● Do NOT mention or reference any other agents.\n"
-        "● Use plain text only; do not use bold (**), italics (*), or other Markdown formatting.\n\n"
-        "Company description (if any):\n"
-        f"{merged_company_info}\n\n"
-        "Follow this exact structure:\n\n"
-        f"{agent_name} – [AGENT TITLE]\n"
-        "This solution [≥120 words; describe what this agent does for the business based on the pains above; focus ONLY on relevant workflows].\n\n"
-        "Key Features:\n"
-        "● Write each feature as 'Title: description' with plain text only, no Markdown formatting.\n"
-        "● Pick features that match the pains; each description should be 1–2 sentences.\n"
-        "● ...\n"
-        "● ...\n"
-        "● ...\n\n"
-        "Business Impact:\n"
-        "● Summarize realistic impacts based on the client's industry and pains.\n"
-        "● Use qualitative descriptions or achievable improvement ranges instead of precise, unverifiable numbers.\n"
-        "● Focus on how the solution addresses the pains and delivers measurable or observable value.\n"
-        "● ...\n"
-        "● ...\n"
-        "● ...\n\n"
-        "Transformation Summary:\n"
-        "Summarize how this agent transforms the client’s operations, anchored to the pains and the industry context.\n\n"
-        "Expected Outcomes:\n"
-        "List 4–5 realistic outcomes directly supported by the pains/manual.\n"
-        "● Use achievable, qualitative statements that reflect tangible benefits (e.g., improved efficiency, reduced errors, enhanced customer satisfaction).\n"
-        "● Include ranges or directional terms ('significant improvement', 'moderate increase') only when appropriate.\n"
-        "● [Outcome 2]\n"
-        "● [Outcome 3]\n"
-        "● [Outcome 4]\n"
-        "● [Outcome 5]\n"
+            f"You are an AI consultant. Write a full structured solution module for the agent {agent_name}, "
+            f"tailored specifically to the client's industry and the pain points below.\n\n"
+            f"OFFICIAL AGENT DEFINITION (reference only, do not copy blindly):\n{agent_definition}\n\n"
+            f"CLIENT PAIN POINTS (authoritative, must anchor your content):\n{pain_points_block}\n\n"
+            "HARD RULES:\n"
+            "● Use the pain points and transcript context as PRIMARY constraints.\n"
+            "● Include ONLY features/impacts/outcomes that directly map to these pains and the client's industry context.\n"
+            "● If a feature is not supported by the agent manual or not relevant to the pains, exclude it.\n"
+            "● Do NOT mention or reference any other agents.\n\n"
+            "Company description (if any):\n"
+            f"{merged_company_info}\n\n"
+            "Follow this exact structure:\n\n"
+            f"{agent_name} – [AGENT TITLE]\n"
+            "This solution [≥120 words; describe what this agent does for the business based on the pains above; focus ONLY on relevant workflows].\n\n"
+            "Key Features:\n"
+            "● [Pick features that match the pains; >2 full sentences total.]\n"
+            "● ...\n"
+            "● ...\n"
+            "● ...\n\n"
+            "Business Impact:\n"
+            "● [Summarize only impact metrics realistic for the client's industry given these pains; ≥2 full sentences.]\n"
+            "● ...\n"
+            "● ...\n"
+            "● ...\n\n"
+            "Transformation Summary:\n"
+            "Summarize how this agent transforms the client’s operations, anchored to the pains and the industry context.\n\n"
+            "Expected Outcomes:\n"
+            "List 4–5 outcomes that are directly supported by the pains/manual, e.g.:\n"
+            "● Operational Efficiency: Automation of manual tasks frees up staff time\n"
+            "● [Outcome 2]\n"
+            "● [Outcome 3]\n"
+            "● [Outcome 4]\n"
+            "● [Outcome 5]\n"
         )
 
         result = rag_chain(index, query)
