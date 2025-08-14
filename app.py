@@ -1,7 +1,10 @@
 from flask import Flask, request, jsonify
 from processor import load_all_documents, split_into_chunks, build_faiss_index, load_faiss_index, rag_chain
 from pathlib import Path
-import os, json, re, traceback
+import os
+import traceback
+import json
+import re
 
 app = Flask(__name__)
 UPLOAD_FOLDER = "uploads"
@@ -9,120 +12,168 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 index_cache = {}
 
+# === OFFICIAL, CASE-AGNOSTIC DEFINITIONS (from 3echo 360 Circuit) ===
 AGENT_DEFINITIONS = {
-    "HYPE":   "HYPE (Marketing Intelligence Agent): Turns marketing into a revenue engine via automation and measurement.",
-    "STRIKE": "STRIKE (Sales Acceleration Agent): Scales relationship-led selling via pipeline intelligence and outreach automation.",
-    "CARE":   "CARE (Customer Experience Agent): Delivers 24/7 omnichannel support with human escalation.",
-    "VISION": "VISION (Strategic Intelligence Agent): Provides exec-level insight for decisions.",
-    "FLOW":   "FLOW (Operations Excellence Agent): Orchestrates back-office processes.",
-    "ASSET":  "ASSET (Financial Intelligence Agent): Automates finance ops and planning.",
-    "TEAM":   "TEAM (Human Capital Agent): Optimizes talent lifecycle.",
-    "CODE":   "CODE (Technology Intelligence Agent): Provides integration & data platform."
+    "HYPE": "HYPE (Marketing Intelligence Agent): Turns marketing into a revenue engine via automation and measurement. Core scope: content ops, cross-platform orchestration, audience segmentation, A/B testing & optimization.",
+    "STRIKE": "STRIKE (Sales Acceleration Agent): Scales relationship-led selling via pipeline intelligence and outreach automation. Core scope: lead scoring, stage progression, outreach/scheduling, proposals.",
+    "CARE": "CARE (Customer Experience Agent): Delivers 24/7 omnichannel support with human escalation. Core scope: FAQ/knowledge base, chatbot/voice, ticket routing, onboarding & feedback.",
+    "VISION": "VISION (Strategic Intelligence Agent): Provides exec-level insight for decisions. Core scope: cross-functional KPIs, customer/LTV & churn, competitive/market intel, strategy dashboards.",
+    "FLOW": "FLOW (Operations Excellence Agent): Orchestrates back-office processes. Core scope: process automation, fulfillment/SLAs, quality/compliance monitoring, vendor coordination.",
+    "ASSET": "ASSET (Financial Intelligence Agent): Automates finance ops and planning. Core scope: AR/AP, invoice processing & matching, reconciliation, expense control, cash-flow forecasting.",
+    "TEAM": "TEAM (Human Capital Agent): Optimizes talent lifecycle. Core scope: recruiting/screening, onboarding, performance & development, internal knowledge.",
+    "CODE": "CODE (Technology Intelligence Agent): Provides integration & data platform. Core scope: APIs/connectors, data pipelines & governance, ML/BI foundation, cloud/security."
 }
 
+# === Text-only GUARDRAILS (prompt-enforced) ===
 GUARDRAILS = r"""
 Select ONLY from: HYPE, STRIKE, CARE, VISION, FLOW, ASSET, TEAM, CODE.
-- Evidence-gated: Include an agent ONLY if supported by retrieved text.
-- Uniqueness: One capability belongs to one owner.
-- Output strict JSON: { "pain_points":[], "agents":[], "rationale":{...} }
+
+GENERAL RULES:
+- Industry-agnostic. Use domain-neutral wording (no client/vendor names).
+- Evidence-gated: Include an agent ONLY if explicitly supported by retrieved text.
+- Do NOT infer or assume missing functions. Absence of evidence = not eligible.
+- For each eligible agent, attach 1–3 short verbatim snippets (≤30 words each) as evidence.
+- If no agents qualify, return an empty list for agents.
+- Keep specific processes distinct (e.g., 'monthly timesheets/payroll' vs. '24/7 client support/FAQ').
+
+UNIQUENESS / NO-OVERLAP:
+- A capability may be assigned to ONE owner agent only (see owners below).
+- Do NOT list the same capability under multiple agents, even if context suggests overlap.
+- If ambiguous, choose the single best-fit agent per capability and state the reason concisely.
+
+OFFICIAL CAPABILITY OWNERS (reference, no cross-listing):
+- Finance → ASSET: reconciliation, invoice matching, AR/AP, expense control, cash-flow forecasting, payroll/timesheets/attendance.
+- CX → CARE: 24/7 support, FAQ/knowledge base, chatbot/voice, ticket routing, escalation-to-human.
+- Marketing → HYPE: content automation, cross-platform orchestration, audience segmentation, A/B testing & optimization.
+- Sales → STRIKE: lead scoring/qualification, pipeline stage progression, outreach/scheduling, proposals/quotations.
+- Strategy → VISION: exec KPIs, strategic decision support, competitive/market intelligence, LTV/churn.
+- Operations → FLOW: process orchestration, vendor/supplier coordination, fulfillment/SLAs, quality/compliance monitoring.
+- HR → TEAM: recruiting/sourcing/screening, onboarding, performance/development, internal knowledge.
+- Tech/Data → CODE: APIs/integration, data pipelines/sync, model ops, BI/ML platform, cloud/security/monitoring.
+
+PAIN-POINT EXTRACTION:
+- Extract 3–8 concise, non-duplicative pain points.
+- Each pain point MUST include 1–2 short quotes (≤30 words) from retrieved text.
+- Use neutral wording (no client/vendor names).
+
+ELIGIBILITY BY AGENT (INCLUDE IF / EXCLUDE IF):
+- HYPE: INCLUDE IF social/content/email automation, ads, A/B testing, segmentation, marketing ROI optimization. EXCLUDE IF no marketing activity.
+- STRIKE: INCLUDE IF pipeline/stage, lead scoring/qualification, cold outreach, meeting scheduling, proposals. EXCLUDE IF no sales.
+- CARE: INCLUDE IF 24/7 or after-hours, FAQ/KB/help center, chatbot/voice, ticket routing, escalation, compliance/policy, onboarding, multi-channel (web/WhatsApp/email/call). EXCLUDE IF no CX/KB/escalation.
+- VISION: INCLUDE IF cross-functional KPIs, competitive/market intel, decision support, LTV/churn. EXCLUDE IF purely operational.
+- FLOW: INCLUDE IF process orchestration, vendor/supplier mgmt, quality/compliance, order/fulfillment, back-office automation. EXCLUDE IF only front-office.
+- ASSET: INCLUDE IF AR/AP, invoicing, invoice matching, reconciliation, expense control, cash-flow forecasting; OR payroll/timesheet/attendance. EXCLUDE IF no finance/payroll/accounting.
+- TEAM: INCLUDE IF recruiting/sourcing/screening, onboarding, performance tracking/development, internal knowledge base, skills matching. EXCLUDE IF no HR/talent.
+- CODE: INCLUDE IF integration/API, data pipelines/sync, model ops, cloud/security/monitoring, BI/ML platform. EXCLUDE IF no integration/infrastructure.
+
+OUTPUT (STRICT JSON ONLY):
+{
+  "pain_points": ["..."],
+  "eligibility": {
+    "HYPE": {"eligible": false, "reason": "...", "evidence": []},
+    "STRIKE": {"eligible": true,  "reason": "...", "evidence": []},
+    "CARE": {"eligible": false, "reason": "...", "evidence": []},
+    "VISION": {"eligible": false, "reason": "...", "evidence": []},
+    "FLOW": {"eligible": true,  "reason": "...", "evidence": []},
+    "ASSET": {"eligible": false, "reason": "...", "evidence": []},
+    "TEAM": {"eligible": true,  "reason": "...", "evidence": []},
+    "CODE": {"eligible": false, "reason": "...", "evidence": []}
+  },
+  "agents": ["TEAM","FLOW","STRIKE"],
+  "rationale": {"TEAM": "...","FLOW": "...","STRIKE": "..."}
+}
 """
 
 def _safe_json_extract(text: str):
     try:
         return json.loads(text)
     except Exception:
-        try:
-            s, e = text.find("{"), text.rfind("}")
-            return json.loads(text[s:e+1]) if (s!=-1 and e!=-1 and e>s) else None
-        except Exception:
-            return None
+        pass
+    try:
+        start = text.find("{")
+        end = text.rfind("}")
+        if start != -1 and end != -1 and end > start:
+            return json.loads(text[start:end+1])
+    except Exception:
+        return None
+    return None
 
-def strip_meta(text: str) -> str:
-    t = text or ""
-    t = re.sub(r"```.*?```", "", t, flags=re.S)
-    return "\n".join(
-        ln for ln in t.splitlines()
-        if not ln.strip().lower().startswith("sources:")
-    ).strip()
-
+# --- Minimal ownership: forbid obvious cross-agent outcomes (lowercase match) ---
 FORBIDDEN_BY_AGENT = {
-    "HYPE":   ["reconciliation","invoice","claims","ar/ap","cash flow","24/7","chatbot","ticket","knowledge base","data platform"],
-    "STRIKE": ["reconciliation","invoice","claims","ar/ap","cash flow","24/7","chatbot","feedback","knowledge base","data platform"],
-    "CARE":   ["reconciliation","invoice","claims","ar/ap","cash flow","pipeline","proposal","ab testing","data platform"],
-    "VISION": ["reconciliation","invoice","claims","ar/ap","24/7","chatbot","feedback","data platform ownership"],
-    "FLOW":   ["reconciliation","invoice","claims","24/7","chatbot","feedback","emr extraction"],
-    "ASSET":  ["24/7","chatbot","feedback","knowledge base","pipeline","ab testing","data platform"],
-    "TEAM":   ["reconciliation","invoice","claims","ar/ap","24/7","chatbot","ab testing","pipeline","data platform"],
-    "CODE":   ["reconciliation","invoice","claims","ar/ap","24/7","chatbot","feedback","collections"]
-}
-
-CATEGORY_HINTS = {
-    "CARE":   [r"\bcustomer service\b", r"\bsupport\b", r"\bticket(s|ing)?\b", r"\bescalation\b", r"\bknowledge base\b", r"\b24\/?7\b"],
-    "STRIKE": [r"\bsales\b", r"\bpipeline\b", r"\blead(s)?\b", r"\bqualification\b", r"\boutreach\b", r"\bmeeting(s)?\b", r"\bproposal(s)?\b"],
-    "FLOW":   [r"\boperation(s)?\b", r"\bSLA(s)?\b", r"\bprocess\b", r"\bfulfillment\b", r"\bhandoff\b", r"\bqueue(s)?\b", r"\bvendor(s)?\b"],
-    "HYPE":   [r"\bmarketing\b", r"\bA\/B testing\b", r"\baudience segmentation\b", r"\bsocial media\b", r"\bemail campaign(s)?\b"],
-    "VISION": [r"\bKPI(s)?\b", r"\bdecision support\b", r"\bmarket intelligence\b", r"\bcompetitive\b", r"\bchurn\b", r"\bLTV\b"],
-    "ASSET":  [r"\bfinance\b", r"\breconciliation\b", r"\binvoice(s)?\b", r"\bar\/ap\b", r"\bcash[- ]?flow\b"],
-    "TEAM":   [r"\brecruit(ing|ment)?\b", r"\bscreening\b", r"\bonboarding\b", r"\btraining\b", r"\bperformance review\b"],
-    "CODE":   [r"\bAPI(s)?\b", r"\bintegration(s)?\b", r"\bdata pipeline(s)?\b", r"\bETL\b", r"\bcloud\b", r"\bsecurity\b"]
-}
-def detect_agents_from_text(text: str):
-    found=set(); t=text or ""
-    for agent, pats in CATEGORY_HINTS.items():
-        if any(re.search(p, t, flags=re.I) for p in pats): found.add(agent)
-    return found
-
-SAFE_PHRASES = {
-    "CARE":   [r"\bknowledge base article\b"],
-    "STRIKE": [r"\bfollow-?up feedback\b"],
-    "FLOW":   [r"\bSLA reporting\b"],
-    "HYPE":   [r"\bA\/B testing\b"],
-    "VISION": [r"\bKPI dashboard\b"],
-    "ASSET":  [r"\bcash flow statement\b"],
-    "TEAM":   [r"\btraining feedback\b"],
-    "CODE":   [r"\bdata platform integration\b"]
+    "HYPE":  ["reconciliation","invoice","insurance form","claims","ar/ap","cash flow","24/7","chatbot","ticket","knowledge base","emr extraction","data platform"],
+    "STRIKE":["reconciliation","invoice","insurance form","claims","ar/ap","cash flow","24/7","chatbot","feedback","knowledge base","emr extraction","data platform"],
+    "CARE":  ["reconciliation","invoice","insurance form","claims","ar/ap","cash flow","pipeline","proposal","ab testing","emr extraction","data platform"],
+    "VISION":["reconciliation","invoice","insurance form","claims","ar/ap","24/7","chatbot","feedback","onboarding (hr)","emr extraction","data platform ownership"],
+    "FLOW":  ["reconciliation","invoice","insurance form","claims","24/7","chatbot","feedback","emr extraction"],
+    "ASSET": ["24/7","after-hours","chatbot","feedback","knowledge base","pipeline","ab testing","data platform","emr extraction","unified data platform"],
+    "TEAM":  ["reconciliation","invoice","insurance form","claims","ar/ap","24/7","chatbot","ab testing","pipeline","data platform","emr extraction"],
+    "CODE":  ["reconciliation","invoice","insurance form","claims","ar/ap","24/7","chatbot","feedback","collections"]
 }
 
 def find_violations(agent: str, text: str):
+    t = (text or "").lower()
+    return sorted({term for term in FORBIDDEN_BY_AGENT.get(agent, []) if term in t})
+
+def remove_forbidden_lines(agent: str, text: str):
+    """Delete any line containing a forbidden term; keep structure simple."""
+    forb = [f.lower() for f in FORBIDDEN_BY_AGENT.get(agent, [])]
+    lines = (text or "").splitlines()
+    kept, removed = [], []
+    for ln in lines:
+        ll = ln.lower()
+        if any(term in ll for term in forb):
+            removed.append(ln)
+        else:
+            kept.append(ln)
+    return "\n".join(kept).strip(), removed
+
+def strip_meta(text: str):
+    """Remove code fences and SOURCES lines to keep plain text only."""
     t = text or ""
+    t = re.sub(r"```.*?```", "", t, flags=re.S)  # remove fenced blocks
+    lines = []
+    for ln in t.splitlines():
+        if ln.strip().lower().startswith("sources:"):
+            continue
+        if ln.strip().startswith("```"):
+            continue
+        lines.append(ln)
+    return "\n".join(lines).strip()
 
-    for sp in SAFE_PHRASES.get(agent, []):
-        t = re.sub(sp, "__SAFE__", t, flags=re.I)
-    violations=set()
-    for term in FORBIDDEN_BY_AGENT.get(agent, []):
-        pat = r"\b" + re.escape(term).replace(r"\ ", r"\s+").replace(r"\/", r"[\/]") + r"\b"
-        if re.search(pat, t, flags=re.I):
-            violations.add(term)
-    return sorted(violations)
-
-SAFE_REPLACEMENTS = {
-    "STRIKE": { r"\bfeedback\b": "response", r"\bchatbot\b": "automated outreach" },
-    "FLOW":   { r"\b24\/?7\b": "continuous", r"\bchatbot\b": "workflow automation" }
-}
-def apply_safe_replacements(agent: str, text: str):
-    out=text
-    for pat,repl in SAFE_REPLACEMENTS.get(agent, {}).items():
-        out = re.sub(pat, repl, flags=re.I)
-    return out.replace("__SAFE__", "safe-phrase")
-
-# ========== Routes ==========
 @app.route("/match_agents", methods=["POST"])
 def match_agents():
     try:
-        transcript = request.files["transcript"]; agent_file = request.files["agent_manual"]
-        tp = Path(UPLOAD_FOLDER)/transcript.filename; ap = Path(UPLOAD_FOLDER)/agent_file.filename
-        transcript.save(tp); agent_file.save(ap)
+        transcript_file = request.files["transcript"]
+        agent_file = request.files["agent_manual"]
 
-        company_info = request.form.get("company_info","")
+        transcript_path = Path(UPLOAD_FOLDER) / transcript_file.filename
+        agent_path = Path(UPLOAD_FOLDER) / agent_file.filename
+        transcript_file.save(transcript_path)
+        agent_file.save(agent_path)
 
-        sections = load_all_documents([tp, ap])
+        company_info = request.form.get("company_info", "") or ""
+
+        sections = load_all_documents([transcript_path, agent_path])
         if company_info:
             sections.append({"title":"Company Info","text":company_info,"source":"web_summary","type":"company"})
-        chunks = split_into_chunks(sections, chunk_size=500, chunk_overlap=50)
-        index  = build_faiss_index(chunks)
 
-        session_id = request.form.get("session_id","default")
-        index_cache[session_id] = {"index": index, "transcript_path": str(tp), "agent_path": str(ap), "company_info": company_info}
+        chunks = split_into_chunks(sections, chunk_size=500, chunk_overlap=50)
+        index = build_faiss_index(chunks)
+
+        session_id = request.form.get("session_id", "default")
+        index_cache[session_id] = {
+            "index": index,
+            "transcript_path": str(transcript_path),
+            "agent_path": str(agent_path),
+            "company_info": company_info
+        }
+
+        save_dir = f"/tmp/faiss_{session_id}"
+        try:
+            index.save_local(save_dir)
+            index_cache[session_id]["save_dir"] = save_dir
+        except Exception:
+            pass
 
         query = (
             "You are an AI strategy consultant. From the transcript + agent manual, extract top concrete business pain points (3–8 items, concise). "
@@ -138,17 +189,28 @@ def match_agents():
             "  \"rationale\": {\"TEAM\": \"...\", \"FLOW\": \"...\"}\n"
             "}\n"
         )
-        
+
         result_text = rag_chain(index, query)
         parsed = _safe_json_extract(result_text) or {}
 
-        pain_points   = parsed.get("pain_points", []) or []
-        agents        = parsed.get("agents", []) or []
-        rationale     = parsed.get("rationale", {}) or {}
+        pain_points = parsed.get("pain_points", []) or []
+        matched_agents = parsed.get("agents", []) or []
+        rationale = parsed.get("rationale", {}) or {}
 
-        index_cache[session_id].update({"pain_points": pain_points, "matched_agents": agents, "rationale": rationale})
+        index_cache[session_id].update({
+            "pain_points": pain_points,
+            "matched_agents": matched_agents,
+            "rationale": rationale
+        })
 
-        return jsonify({"session_id": session_id, "pain_points": pain_points, "matched_agents": agents, "rationale": rationale})
+        return jsonify({
+            "session_id": session_id,
+            "pain_points": pain_points,
+            "matched_agents": matched_agents,
+            "rationale": rationale,
+            "raw": result_text
+        })
+
     except Exception as e:
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500
@@ -157,68 +219,105 @@ def match_agents():
 def generate_agent_module():
     try:
         agent_name = request.json.get("agent")
-        session_id = request.json.get("session_id","default")
-        company_info = request.json.get("company_info","")
+        session_id = request.json.get("session_id", "default")
+        company_info = request.json.get("company_info", "")
         force = bool(request.json.get("force", False))
 
         cached = index_cache.get(session_id)
         if not cached:
             save_dir = f"/tmp/faiss_{session_id}"
             if os.path.isdir(save_dir):
-                index_cache[session_id] = {"index": load_faiss_index(save_dir), "company_info": company_info,
-                                           "pain_points": [], "matched_agents": [], "rationale": {}}
+                index_cache[session_id] = {
+                    "index": load_faiss_index(save_dir),
+                    "transcript_path": "",
+                    "agent_path": "",
+                    "company_info": company_info,
+                    "save_dir": save_dir,
+                    "pain_points": [],
+                    "matched_agents": [],
+                    "rationale": {}
+                }
                 cached = index_cache[session_id]
-        if not cached: return jsonify({"error":"No index found for session."}), 400
-        if agent_name not in AGENT_DEFINITIONS: return jsonify({"error": f"Invalid agent name: {agent_name}"}), 400
+
+        if not cached:
+            return jsonify({"error": "No index found for session."}), 400
+        if agent_name not in AGENT_DEFINITIONS:
+            return jsonify({"error": f"Invalid agent name: {agent_name}"}), 400
 
         index = cached["index"]
+        agent_definition = AGENT_DEFINITIONS[agent_name]
         pain_points = request.json.get("pain_points") or cached.get("pain_points", [])
         matched_agents = cached.get("matched_agents", [])
-        merged_info = (company_info or cached.get("company_info","")).strip()
+        merged_company_info = (company_info or cached.get("company_info", "")).strip()
 
-        protected = set(matched_agents) | detect_agents_from_text(" ".join(pain_points) + "\n" + merged_info)
+        pain_points_block = "\n".join([f"- {pp}" for pp in pain_points]) if pain_points else "- (no extracted pain points)"
 
-        pains_block = "\n".join([f"- {pp}" for pp in pain_points]) if pain_points else "- (none)"
-
-        context_hints = {
-            "STRIKE": "Stay in sales (leads, scoring, outreach, meetings, proposals). Avoid chatbots, 24/7, finance, HR.",
-            "FLOW":   "Stay in operations (SLA, handoffs, queues, vendors). Avoid 24/7 ownership, chatbots, finance.",
-            "CARE":   "Stay in support (24/7, tickets, KB, escalation). Avoid finance and sales pipeline.",
-            "HYPE":   "Stay in marketing automation/experiments. Avoid sales/finance/HR/support/data-platform ownership.",
-            "VISION": "Stay in strategy/KPIs/market intel. Avoid operational ownership/finance/data-platform ownership.",
-            "ASSET":  "Stay in finance ops (AR/AP, invoices, reconciliation, cashflow). Avoid 24/7/chatbots/sales.",
-            "TEAM":   "Stay in HR lifecycle (recruiting, onboarding, performance, knowledge). Avoid finance and sales.",
-            "CODE":   "Stay in integrations/data (APIs, pipelines, governance, serving, monitoring). Avoid business ownership."
-        }
-        agent_hint = context_hints.get(agent_name,"")
-
-        query = (
-            f"Write an industry-agnostic solution module for {agent_name} using ONLY the pains below.\n"
-            f"Agent definition:\n{AGENT_DEFINITIONS[agent_name]}\n\n"
-            f"PAIN POINTS:\n{pains_block}\n\n"
-            "Rules:\n- Plain text only; no JSON or code fences.\n- Map features/impacts to pains only; avoid forbidden cross-domain claims.\n"
-            "- If nothing valid remains, output exactly: No relevant outcomes for this agent given the pains.\n\n"
-            f"Agent context hint: {agent_hint}\n"
+        OUTCOME_OWNERSHIP = (
+            "Outcome ownership (no overlap; examples, not exhaustive):\n"
+            "- HYPE Allowed: CTR/engagement, conversion lift from experiments, segmentation precision, creative turnaround, content calendar automation, A/B win-rate, lower CPA/CPM. "
+            "Forbidden: sales pipeline, finance (reconciliation/invoices/AR/AP), 24/7/ticketing, EMR extraction, HR, data platform.\n"
+            "- STRIKE Allowed: lead-qualification accuracy, meeting-book rate, pipeline velocity/stage conversion, follow-up SLA, proposal turnaround, forecast accuracy, win-rate. "
+            "Forbidden: marketing A/B/ROI, finance, 24/7/chatbot/feedback, HR, EMR extraction, data platform.\n"
+            "- CARE Allowed: 24/7 coverage, first-response/resolution time, deflection, CSAT/NPS, escalation quality, multi-channel consistency, KB coverage. "
+            "Forbidden: finance (reconciliation/invoices/claims/AR/AP), marketing/sales pipeline, HR, data platform, EMR extraction.\n"
+            "- VISION Allowed: cross-functional KPI alignment, exec dashboard adoption, decision-latency reduction, churn/LTV insights, competitive-intel to action, scenario planning. "
+            "Forbidden: operational task ownership (support/reconciliation/outreach/claims), data platform ownership, HR staffing, EMR extraction.\n"
+            "- FLOW Allowed: SLA adherence, handoff error reduction, batch-job timeliness, queue-time reduction, workload balancing, appointment-slot utilization (ops orchestration only). "
+            "Forbidden: reconciliation, insurance forms/claims, 24/7 ownership, feedback ops, EMR extraction ownership.\n"
+            "- ASSET Allowed: monthly reconciliation time/accuracy, invoice matching, DSO reduction, claim acceptance rate, payment follow-ups/collections, close-cycle duration, expense-policy compliance. "
+            "Forbidden: 24/7/chatbot/feedback, marketing A/B/ROI, sales pipeline, HR, data platform, EMR extraction.\n"
+            "- TEAM Allowed: time-to-hire, screening throughput/quality, offer-acceptance, onboarding completion/time, training completion, performance review cadence, internal knowledge usage. "
+            "Forbidden: finance ops, 24/7/chatbot/feedback, sales pipeline, marketing A/B, data platform, EMR extraction.\n"
+            "- CODE Allowed: unified data platform availability/latency/sync completeness, API uptime/error rate, EMR data extraction & structuring availability, pipeline freshness, monitoring/alert MTTR, model/BI serving latency. "
+            "Forbidden: finance outcomes (reconciliation/invoices/AR/AP/claims), 24/7/chatbot/feedback ops, marketing/sales/HR outcomes.\n"
         )
 
-        draft = strip_meta(rag_chain(index, query)).strip()
-        if draft == "No relevant outcomes for this agent given the pains.":
+        query = (
+            f"You are an AI consultant. Write an industry-agnostic solution module for {agent_name}, "
+            f"anchored to the pains below and following uniqueness rules and outcome ownership.\n\n"
+            f"OFFICIAL AGENT DEFINITION (reference only):\n{agent_definition}\n\n"
+            f"PAIN POINTS (authoritative anchors):\n{pain_points_block}\n\n"
+            "HARD RULES:\n"
+            "● Return PLAIN TEXT only. Do NOT output JSON, code fences, or a 'SOURCES:' line.\n"
+            "● Use the pains as PRIMARY constraints; only include features/impacts/outcomes that directly map to these pains.\n"
+            "● Do NOT explain or restate forbidden capabilities. Do NOT mention guardrails/ownership in the output.\n"
+            "● If no valid content remains for this agent given the pains, output exactly:\n"
+            "  No relevant outcomes for this agent given the pains.\n"
+            "  (Do not add any other text.)\n"
+            f"● Outcome ownership:\n{OUTCOME_OWNERSHIP}\n"
+            "STRUCTURE (use plain text, no Markdown emphasis):\n"
+            f"{agent_name} – [AGENT TITLE]\n"
+            "This solution [≥120 words...]\n\n"
+            "Key Features:\n"
+            "● Title: description\n● Title: description\n● Title: description\n\n"
+            "Business Impact:\n"
+            "● Impact 1\n● Impact 2\n● Impact 3\n\n"
+            "Transformation Summary:\n"
+            "[One short paragraph]\n\n"
+            "Expected Outcomes:\n"
+            "● Outcome 1\n● Outcome 2\n● Outcome 3\n● Outcome 4\n● Outcome 5\n\n"
+            f"Guardrails to follow:\n{GUARDRAILS}\n"
+        )
+
+        result = rag_chain(index, query)
+
+        # --- sanitize meta noise (code fences / SOURCES) ---
+        result = strip_meta(result)
+
+        # --- Silent handling for "no relevant outcomes" ---
+        safe_empty = "No relevant outcomes for this agent given the pains."
+        if result.strip() == safe_empty:
             return jsonify({"agent_module": ""})
 
-        draft = apply_safe_replacements(agent_name, draft)
-        violations = find_violations(agent_name, draft)
+        # --- remove lines containing forbidden terms ---
+        cleaned, _removed_lines = remove_forbidden_lines(agent_name, result)
 
-        if violations:
+        # --- final guard: still violations? return empty string silently ---
+        if find_violations(agent_name, cleaned):
+            return jsonify({"agent_module": ""})
 
-            lines = draft.splitlines()
-            kept = []
-            for ln in lines:
-                if any(re.search(r"\b"+re.escape(term).replace(r"\ ", r"\s+")+r"\b", ln, flags=re.I) for term in violations):
-                    continue
-                kept.append(ln)
-            draft = "\n".join(kept).strip()
-
-        return jsonify({"agent_module": draft})
+        # success, only return agent_module
+        return jsonify({"agent_module": cleaned})
 
     except Exception as e:
         traceback.print_exc()
