@@ -18,7 +18,7 @@ AGENT_DEFINITIONS = {
     "CARE": "CARE (Customer Experience Agent): Delivers omnichannel customer support that blends AI efficiency with human escalation. Core scope includes AI voice receptionist, omnichannel chatbot/ticket routing with sentiment, customer onboarding automation, and feedback/experience analytics.",
     "VISION": "VISION (Strategic Intelligence Agent): Provides executive-level strategic intelligence turning data into actionable insights and competitive advantage. Core scope includes business health diagnostics, cross-functional performance dashboards, competitive response coordination, and customer intelligence/LTV optimization.",
     "FLOW": "FLOW (Operations Excellence Agent): Optimizes operational efficiency via intelligent process automation and supply chain intelligence. Core scope includes inventory management/forecasting, supplier/vendor management, quality/compliance monitoring, and order fulfillment & delivery optimization.",
-    "ASSET": "ASSET (Financial Intelligence Agent): Transforms financial management via intelligent automation and predictive planning. Core scope includes intelligent accounts receivable, automated invoice processing and matching, expense management and approvals, and cash-flow management and forecasting.",
+    "ASSET": "ASSET (Financial Intelligence Agent): Transforms financial management via intelligent automation and predictive planning. Core scope includes intelligent accounts receivable, automated invoice processing and matching, expense management and approvals, cash-flow management and forecasting and avoid time consuming financial activity.",
     "TEAM": "TEAM (Human Capital Agent): Optimizes human potential with intelligent recruitment, development, and performance management. Core scope includes automated onboarding, recruitment & screening, performance monitoring & development, and internal knowledge management.",
     "CODE": "CODE (Technology Intelligence Agent): Provides the technology foundation for AI-driven transformation through intelligent infrastructure management. Core scope includes business tool connection hub, data architecture & ML foundation, cloud infrastructure & cybersecurity, and predictive BI & ML engines."
 }
@@ -56,7 +56,7 @@ ELIGIBILITY BY AGENT (INCLUDE IF / EXCLUDE IF):
   EXCLUDE IF: Only front-office activities (marketing/sales/support) are present.
 
 - ASSET (Finance):
-  INCLUDE IF: Mentions AR/AP, invoicing, invoice matching, expense control, cash-flow forecasting.
+  INCLUDE IF: Mentions AR/AP, invoicing, invoice matching, expense control, cash-flow forecasting, complex/time consuming manual financial activity.
   EXCLUDE IF: No finance operations are mentioned.
   
 - TEAM (Human Capital/Talent):
@@ -64,7 +64,7 @@ ELIGIBILITY BY AGENT (INCLUDE IF / EXCLUDE IF):
   EXCLUDE IF: No HR/talent themes are present.
 
 - CODE (Tech Foundation/Integration):
-  INCLUDE IF: Mentions system integration/API, data pipelines, model operations, cloud/security/monitoring.
+  INCLUDE IF: Mentions system integration/API, data pipelines, model operations, cloud/security.
   EXCLUDE IF: No integration/infrastructure needs are present.
 
 OUTPUT: Return STRICT JSON ONLY (no prose). Use this exact schema:
